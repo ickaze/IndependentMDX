@@ -1,0 +1,11 @@
+# Distribution build subset; upstream tests/evidence are intentionally omitted.
+cmake_minimum_required(VERSION 3.20)
+project(independent_opm LANGUAGES CXX)
+add_library(independent_opm SHARED src/ym2151.cpp src/dll_api.cpp)
+target_compile_features(independent_opm PUBLIC cxx_std_17)
+target_include_directories(independent_opm PUBLIC include)
+target_compile_definitions(independent_opm PRIVATE IOPM_BUILD_DLL)
+if(WIN32)
+  target_sources(independent_opm PRIVATE dll/independent_opm.def)
+  set_target_properties(independent_opm PROPERTIES PREFIX "")
+endif()

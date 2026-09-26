@@ -1,0 +1,4 @@
+Supplied file: independent_opm(1).dll
+Installed as: bin/independent_opm.dll
+SHA256: 08dee3e49fbe39bcee872aff3aa2f207c55d93cacd989a3bcaf6b8917868f384
+PE: x64; C ABI exports present. Runtime execution not performed here.
