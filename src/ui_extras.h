@@ -227,6 +227,23 @@ void rememberFolderView() {
         view.top = files[top].path;
     folderViews[folder] = view;
 }
+struct TitleJob {
+    std::atomic<bool> cancelled{false};
+    std::mutex mutex;
+    std::vector<std::pair<std::filesystem::path,std::wstring>> ready;
+};
+std::shared_ptr<TitleJob> titleJob;
+void updateTitles() {
+    if(!titleJob) return;
+    std::vector<std::pair<std::filesystem::path,std::wstring>> ready;
+    { std::lock_guard<std::mutex> lock(titleJob->mutex); ready.swap(titleJob->ready); }
+    for(auto &entry:ready) for(size_t i=0;i<files.size();++i) if(files[i].path==entry.first) {
+        files[i].title=std::move(entry.second);
+        for(size_t j=0;j<columns.size();++j) if(columns[j]==9)
+            ListView_SetItemText(browserList,int(i),int(j),files[i].title.data());
+        break;
+    }
+}
 void navigate(std::filesystem::path target, bool remember = true) {
     std::error_code ec;
     target = std::filesystem::absolute(target, ec).lexically_normal();
@@ -234,6 +251,8 @@ void navigate(std::filesystem::path target, bool remember = true) {
         MessageBeep(MB_ICONWARNING);
         return;
     }
+    if(titleJob) titleJob->cancelled=true;
+    titleJob=std::make_shared<TitleJob>();
     auto previous = folder;
     rememberFolderView();
     if (remember && !folder.empty() && target != folder)
@@ -273,12 +292,21 @@ void navigate(std::filesystem::path target, bool remember = true) {
                              data.dwFileAttributes,
                              info.iIcon,
                              {}});
-            if (!dir && _wcsicmp(ext.c_str(), L".mdx") == 0)
-                files.back().title = readSongTitle(path);
+
         } while (FindNextFileW(search, &data));
         FindClose(search);
     }
     populate();
+    std::vector<std::filesystem::path> pending;
+    for(const auto &f:files) if(!f.directory() && _wcsicmp(f.ext.c_str(),L".mdx")==0) pending.push_back(f.path);
+    std::thread([job=titleJob,pending=std::move(pending)] {
+        for(const auto &path:pending) {
+            if(job->cancelled) break;
+            auto title=readSongTitle(path);
+            std::lock_guard<std::mutex> lock(job->mutex);
+            if(!job->cancelled) job->ready.emplace_back(path,std::move(title));
+        }
+    }).detach();
     auto savedView = folderViews.find(folder);
     if (savedView != folderViews.end()) {
         for (size_t i = 0; i < files.size(); ++i)

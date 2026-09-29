@@ -1,4 +1,17 @@
-# IndependentMDX 0.24
+# IndependentMDX 0.25
+
+## Changes in 0.25
+
+Updates since the initial GitHub release, beginning with the software volume-LFO correction:
+
+- Update Independent OPM source, DLL and API documents to 0.12; apply noise-level correction to the visualization core.
+- Correct square MA depth/baseline and reset MP/MA on retrigger even with MD0, preserving ties.
+- Add append-only error CSV, opt-in MDX collection, recursive headless validation and console folder progress; exclude missing PDX.
+- Resume playback position/pause state after output changes.
+- Load browser titles asynchronously and restore focus after window reactivation.
+- Distinguish F1 relocation from loops for duration/Position; accept raw q bytes and 256-iteration zero repeat count; ignore invalid sync destinations with diagnostics.
+
+Fixed premature transport wrapping caused by short auxiliary-track loops.
 
 ## Changes in 0.24
 
@@ -80,7 +93,7 @@ Updated sources and supplied DLL with iopm_state_size / iopm_save_state / iopm_l
 
 Software pitch/volume LFO continues through key-off, rests and the existing final release interval until MP/MA OFF. MD delay, ties, retrigger phase handling and hardware LFO are unchanged. No new state-save UI is introduced.
 
-MDX / PDX player for Windows 10 / 11 x64, using Independent OPM 0.11b.
+MDX / PDX player for Windows 10 / 11 x64, using Independent OPM 0.12.
 
 Run `bin/IndependentMDX.exe`. Open or drop a file. Keep its PDX beside the MDX, or use **Choose PDX**. Play, pause/resume, stop and export 48 kHz 16-bit stereo WAV. Synthetic demo files are in `samples/`.
 
@@ -255,7 +268,7 @@ This is a sequencer implementation, not execution of the original music driver. 
 
 Use Visual Studio 2022 Desktop development with C++ and CMake, then run `build_vs2022.bat`. No vcpkg or external sound DLL is needed. Outputs are under `build/Release/`. Linux supports tests and CLI WAV export; direct audio and GUI require Windows. See `docs/VALIDATION.md` for actual validation coverage.
 
-Original application code is 0BSD. The supplied 0.11b replacement core is distributed under 0BSD; its corrected provenance documentation is included verbatim. A small host monitor tap is documented in `docs/CORE_MONITOR_PATCH.diff`; core licensing files remain unchanged. Keep `THIRD_PARTY_NOTICES.txt` with distributed binaries. See the full Japanese feature reference in `README.md` and the core documentation for technical details.
+Original application code is 0BSD. The supplied 0.12 core is distributed under 0BSD; its corrected provenance documentation is included verbatim. A small host monitor tap is documented in `docs/MONITOR_CORE_PATCH.diff`; core licensing files remain unchanged. Keep `THIRD_PARTY_NOTICES.txt` with distributed binaries. See the full Japanese feature reference in `README.md` and the core documentation for technical details.
 
 Rebuilding the x86 helper with Visual Studio 2022:
 
@@ -264,3 +277,33 @@ cmake -S . -B build-x86 -A Win32 -DBUILD_TESTING=OFF
 cmake --build build-x86 --config Release --target IndependentMDX-X68Bridge32
 ```
 Copy the resulting helper beside the x64 application. Do not build the whole application for x86 with the supplied x64 Independent OPM DLL.
+
+## Playback corrections (0.25)
+
+- Removed the extra 256x multiplier from square-wave software volume LFO depth.
+- GUI load/playback errors append to `IndependentMDX_errors.csv` beside the executable: UTF-8 CSV, no header, absolute filename / song title / error. Unavailable titles are empty. Nonfatal playback errors are included. The destination must be writable.
+- Changing output during playback resets the old output and resumes the same file at its saved position, preserving pause state. Switching and seeking introduce a short interruption.
+
+## Error MDX collection and MA correction
+
+Launch with `--collect-error-mdx` to copy MDX files with data errors into `ErrorMDX` beside the executable. Originals are unchanged. Content hashes distinguish same-name files and suppress repeat copies. This opt-in flag is not persisted. Missing PDX and consequent missing-bank PCM warnings remain visible but are excluded from logging and collection.
+Square MA now alternates between base attenuation and base plus depth. Window reactivation restores the previously focused child control.
+
+## Headless validation and asynchronous titles
+
+Run `IndependentMDX.exe --validate-folder "D:\Music\MDX"` to recursively validate MDX without opening a window or audio device. Errors append to `IndependentMDX_errors.csv`; failing MDX files are automatically collected in `ErrorMDX` beside the executable. Missing PDX is excluded. Exit codes: 0 clean, 1 data errors, 2 invalid arguments/traversal failure. Validation stops at each track's first end/loop, with a 3600-second score-time limit; reaching the limit is logged as incomplete. This does not validate sound quality or hardware.
+
+The browser displays file metadata first and fills titles from a background reader. Navigating cancels stale results. Title arrivals do not reorder rows; click the title header to sort again. MP/MA phase now resets on every retrigger even with MD0, but remains continuous for tied notes.
+
+## Collected-data compatibility corrections
+
+Forward F1 offsets are accepted as bounded relocation jumps, without marking loop completion. Raw q accepts the full byte: 0..127 proportional gate, 128..255 signed subtraction. Repeat count zero wraps to 256 iterations. Bounds and nesting limits remain enforced.
+`--validate-folder` attaches to the parent console and prints the containing directory when the folder of the MDX under validation changes. It does not create a window or a new console.
+
+## Out-of-range sync destinations
+
+An EF sync send to a nonexistent track is ignored with an error diagnostic instead of aborting playback. The value is not masked into a different channel. Logging and error-file collection remain enabled. This recovery does not guarantee the intended synchronization of malformed data.
+
+## F1 relocation and transport timing
+
+F1 jumps to unvisited addresses, in either direction, are relocation rather than loop completion. The first return to an executed address establishes the loop; later relocation jumps do not increment its counter. This corrects duration and Position for relocated tracks.

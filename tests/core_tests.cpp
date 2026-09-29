@@ -667,16 +667,11 @@ int main() {
                 };
                 require(render(a) == render(b) && x == y, "LFO +4 is not 256x depth");
             }
-            try {
-                mdx::Player bad(mdx::Song(oneTrack({248, 9, 241, 0})), {}, opts);
-                render(bad);
-                require(false, "out-of-range q accepted");
-            } catch (const std::exception &e) {
-                std::string m = e.what();
-                require(m.find("value=9") != m.npos && m.find("expected=1..8") != m.npos &&
-                            m.find("offset 0x") != m.npos,
-                        "numeric diagnostic lacks value/range/offset");
+            for(int q:{0,9,76,112,126,127}) {
+                mdx::Player valid(mdx::Song(oneTrack({248,uint8_t(q),182,3,241,0})),{},opts);
+                render(valid);
             }
+
         }
         ++passed;
         {
@@ -1647,6 +1642,84 @@ int main() {
             require(parsed.hasVoice[17] && parsed.voices[17]==unique,"duplicate skipped a later distinct instrument");
             mdx::Player a(original,{},opts),b(parsed,{},opts);
             require(render(a)==render(b),"duplicate instrument changed playback");
+        }
+        ++passed;
+        // MA1,12,9: fixed-point depth 9*256 must change TL by 9, not 2304.
+        for(int wave:{1,5}) {
+            int depth=wave==1 ? 9*256 : 9;
+            auto bytes=oneTrack({253,0,251,128,235,uint8_t(wave),0,12,uint8_t(depth>>8),uint8_t(depth),233,0,235,129,182,47,241,0});
+            mdx::Song song(bytes); song.voices[0][7]=40;
+            mdx::Player player(song,{},opts); bool keyed=false; int low=127,high=0;
+            player.registerTrace=[&](uint64_t,int a,int v) {
+                if(a==8 && (v&7)==0) keyed=(v&120)!=0;
+                if(keyed && a==0x60) {low=std::min(low,v);high=std::max(high,v);}
+            };
+            render(player);
+            require(low==40 && high==49,"MA square attenuation must alternate base and base+9");
+        }
+        ++passed;
+        {
+            auto data=oneTrack({253,0,251,128,235,1,0,12,9,0,233,0,182,16,182,16,241,0});
+            mdx::Song song(data);song.voices[0][7]=40;
+            mdx::Player player(song,{},opts);int tl=0,ons=0;
+            player.registerTrace=[&](uint64_t,int a,int v){
+                if(a==0x60) tl=v;
+                if(a==8 && (v&7)==0 && (v&120)) {require(tl==49,"MD0 did not reset MA phase on retrigger");++ons;}
+            };
+            render(player);require(ons==2,"missing MA retrigger coverage");
+        }
+        ++passed;
+        {
+            Bytes commands{241,1,0}; commands.resize(259,0xe3);
+            commands.insert(commands.end(),{253,0,182,3,241,0});
+            mdx::Player player(mdx::Song(oneTrack(commands)),{},opts);
+            require(!player.analyze().truncated,"forward F1 relocation failed");
+            require(!render(player).empty(),"forward F1 lost notes");
+            auto o=opts;o.maxSeconds=10;
+            mdx::Player repeated(mdx::Song(oneTrack({253,0,246,0,0,182,0,245,255,250,241,0})),{},o);
+            int ons=0;repeated.registerTrace=[&](uint64_t,int a,int v){if(a==8 && (v&7)==0 && (v&120))++ons;};
+            render(repeated); require(ons==256,"zero repeat count must wrap through 256 iterations");
+        }
+        ++passed;
+        {
+            for(int destination:{9,16,47,255}) {
+                auto bytes=oneTrack({239,uint8_t(destination),253,0,182,3,241,0});
+                mdx::Player player(mdx::Song(bytes),{},opts);
+                int keys=0;player.registerTrace=[&](uint64_t,int a,int v){if(a==8 && (v&120))++keys;};
+                render(player);
+                require(keys==1,"invalid sync signal prevented following note");
+                bool warned=false;
+                for(const auto &warning:player.warnings()) warned|=warning.find("Ignored sync signal")!=std::string::npos;
+                require(warned,"ignored invalid sync was not reported");
+            }
+        }
+        ++passed;
+        {
+            Bytes relocated{241,1,0,253,0,182,3,241,0};
+            relocated.resize(259,0xe3);
+            relocated.insert(relocated.end(),{241,0xfe,0xfd}); // back to offset 3, not visited yet
+            mdx::Player a(mdx::Song(oneTrack(relocated)),{},opts);
+            mdx::Player b(mdx::Song(oneTrack({253,0,182,3,241,0})),{},opts);
+            auto ta=a.analyze(),tb=b.analyze();
+            require(ta.loopEnd==0 && std::abs(ta.duration-tb.duration)<1e-9,"backward relocation misclassified as song loop");
+            require(render(a)==render(b),"relocation changed playback duration/audio");
+            require(std::abs(a.position(ta)-b.position(tb))<1e-9,"relocation changed displayed position");
+        }
+        ++passed;
+        {
+            std::vector<Bytes> tracks(9,Bytes{241,0});
+            tracks[0]={253,0,182,59,241,0};
+            tracks[8]={1,241,255,252}; // two-tick auxiliary rest loop
+            mdx::Player player(mdx::Song(songFile(tracks)),{},opts);
+            auto timeline=player.analyze();
+            require(timeline.loopEnd==0 && timeline.duration>.8,"auxiliary loop replaced full-song timeline");
+            std::array<int16_t,2048> buffer{};
+            double last=0;
+            for(int i=0;i<20;++i) {
+                player.render(buffer.data(),1024);
+                double now=player.position(timeline);
+                require(now>=last,"position wrapped on auxiliary loop");last=now;
+            }
         }
         ++passed;
         // Square pitch LFO: equivalent fixed-point and WAVE+4 encodings.

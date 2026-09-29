@@ -32,9 +32,9 @@ struct Lfo {
         if (wave == 0)
             return x * period * depth;
         if (wave == 1)
-            // MP depth is already in 1/256 detune units (or expanded by WAVE+4).
-            // Do not apply the square-wave factor a second time to pitch.
-            return ((phase / period) % 2 ? -depth : depth) * (pitch ? 1.0 : 256.0);
+            // Depth already uses 8 fractional bits for both MP and MA.
+            // WAVE+4 expansion has already been applied above.
+            return (phase / period) % 2 ? (pitch ? -depth : 0.0) : depth;
         // Two ramps, one period setting per half-wave. Deliberately use
         // real arithmetic rather than emulating 68000 overflow side effects.
         double t = double(phase % (uint64_t(period) * 2));
@@ -57,6 +57,7 @@ struct Track {
     uint64_t loops = 0;
     std::map<size_t, uint64_t> firstVisit;
     double firstEnd = -1, loopStart = 0, loopEnd = 0;
+    size_t loopJumpSource = 0;
     int hardwareSensitivity = 0;
     bool hardwareSync = false, hardwareEnabled = true;
     Lfo pitchLfo, volumeLfo;
@@ -345,7 +346,7 @@ struct Player::Impl {
         t.slide = 0;
         if (retrigger)
             t.age = 0;
-        if (retrigger && t.lfoDelay) {
+        if (retrigger) {
             t.pitchLfo.phase = 0;
             t.volumeLfo.phase = 0;
         }
@@ -569,8 +570,7 @@ struct Player::Impl {
                 break;
             case 248:
                 t.quantize = byte(ch);
-                if (t.quantize < 128 && (t.quantize < 1 || t.quantize > 8))
-                    fail(ch, "Invalid q value", "1..8 or 128..255");
+                // Raw q is a byte; proportional values above eight are used by MDX data.
                 break;
             case 247:
                 t.tieNext = true;
@@ -579,10 +579,10 @@ struct Player::Impl {
                 size_t counter = t.pc;
                 int count = byte(ch);
                 byte(ch);
-                if (!count || t.repeats.size() >= 64)
+                if (t.repeats.size() >= 64)
                     badValue(ch, "Invalid repeat count or excessive repeat nesting", count,
                              "count 1..255; nesting below 64", counter);
-                t.repeats.push_back({counter, t.pc, count});
+                t.repeats.push_back({counter, t.pc, count ? count : 256});
                 break;
             }
             case 245: {
@@ -632,13 +632,23 @@ struct Player::Impl {
                 int offset = signedWord(high * 256 + byte(ch));
                 t.referencedValue = offset;
                 t.referencedOffset = t.pc - 2;
-                if (offset >= 0)
-                    fail(ch, "End-loop pointer must be negative", "signed offset -32768..-1");
+                const int64_t target = static_cast<int64_t>(t.pc) + offset;
+                auto found = t.firstVisit.find(size_t(target));
+                if(t.loops > 0 && t.pc != t.loopJumpSource) {
+                    jump(ch,target);
+                    break;
+                }
+                // Relocation can go in either direction. Only returning to an
+                // already executed address establishes the first song loop.
+                if (t.loops == 0 && found == t.firstVisit.end()) {
+                    jump(ch, target);
+                    break;
+                }
                 if (t.loops == 0) {
+                    t.loopJumpSource = t.pc;
                     t.loopEnd = double(nativeTime) / nativeRate;
                     t.firstEnd = t.loopEnd;
-                    auto found = t.firstVisit.find(size_t(int64_t(t.pc) + offset));
-                    t.loopStart = found == t.firstVisit.end() ? 0 : double(found->second) / nativeRate;
+                    t.loopStart = double(found->second) / nativeRate;
                 }
                 ++t.loops;
                 // Keep all channels running through the final fade. Ended
@@ -651,9 +661,12 @@ struct Player::Impl {
                 break;
             case 239: {
                 int destination = byte(ch);
-                if (destination >= static_cast<int>(tracks.size()))
-                    fail(ch, "Sync channel is outside the track table",
-                         "channel 0.." + std::to_string(tracks.size() - 1) + "");
+                if (destination >= static_cast<int>(tracks.size())) {
+                    warn("ERROR: " + detail(ch, "Ignored sync signal outside the track table",
+                         "channel 0.." + std::to_string(tracks.size() - 1),
+                         destination, t.referencedOffset));
+                    break;
+                }
                 tracks[destination].signal = true;
                 break;
             }
@@ -1085,6 +1098,11 @@ Timeline Player::analyze(const std::function<bool()> &cancelled) {
             result.loopStart = t.loopStart;
             result.channel = int(ch);
         }
+    }
+    // A short auxiliary loop must not wrap the transport while longer
+    // finite tracks are still playing. Use a loop only at the song boundary.
+    if (result.loopEnd < result.duration) {
+        result.loopStart = result.loopEnd = 0;
     }
     if (!result.loopEnd)
         result.duration += .5;

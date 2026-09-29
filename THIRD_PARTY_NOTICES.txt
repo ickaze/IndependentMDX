@@ -1,4 +1,4 @@
-IndependentMDX 0.24 — third-party notices
+IndependentMDX 0.25 — third-party notices
 
 Zero-Clause BSD
 
@@ -20,7 +20,7 @@ synthetic samples in samples/. This license does not replace the licenses
 of Independent OPM, C86CTL interface declarations, or standard compiler/runtime components; see THIRD_PARTY_NOTICES.txt.
 
 
-Independent OPM 0.11b (C ABI DLL distribution and visualization-only monitor_core copy)
+Independent OPM 0.12 (C ABI DLL distribution and visualization-only monitor_core copy)
 
 BSD Zero Clause License
 

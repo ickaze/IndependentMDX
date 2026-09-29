@@ -200,7 +200,7 @@ Stereo Ym2151::synthesize() {
             double value = 0;
             if (op.stage != Envelope::off) {
                 if (ch==7 && slot==3 && (registers_[0x0f]&128))
-                    value = (random_.state&1 ? -1 : 1)*std::max(0.0,1-attenuation/96);
+                    value = .25*(random_.state&1 ? -1 : 1)*std::max(0.0,1-attenuation/96);
                 else {
                     auto &gain=gain_cache_[ch][slot];
                     if(!gain.valid || gain.attenuation!=attenuation)

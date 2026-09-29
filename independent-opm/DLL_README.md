@@ -1,37 +1,30 @@
-# Independent OPM 0.11b — Windows x64 DLL
+# Independent OPM 0.12 — Windows x64
 
+YM2151 emulator DLL. License: 0BSD.
 Copyright (C) 2026 by I.C.KaZe
 
-## 日本語
+ホストアプリの説明に従って independent_opm.dll を配置してください。
+64bitアプリ用です。32bit DLLは含みません。API仕様はAPI.mdを参照してください。
 
-YM2151のレジスタ入力からステレオPCMを生成するライブラリです。
-Windowsの64bit（x64）アプリケーション用です。32bitアプリケーションでは使用できません。
+0.11bからの変更: 実機録音43～46を根拠とするノイズ振幅1/4補正と検証資料の追加。
+API ABI=1、状態データ形式は維持。保存状態を新実装で復帰するとノイズ音量は修正後になります。
 
-### 利用方法
+Place independent_opm.dll as required by your 64-bit host application.
+This package contains no 32-bit DLL. See API.md for integration.
+Release scope: measurement-based noise normalization (0.25 scale), with unchanged ABI/state layout.
 
-対応するホストアプリケーションが指定するフォルダーへ`independent_opm.dll`を配置してください。DLL単体では曲を再生できません。MDX/PDXの解析・演奏制御はホスト側で行います。
-既存DLLを更新する場合は、ホストアプリケーションを終了してから差し替えてください。
+# 0.12 binary package
 
-開発者向けにC ABI 1の宣言`independent_opm.h`と[API概要](API.md)を同梱しています。
-インポートライブラリ（.lib）は含みません。動的ロードにはWindowsのLoadLibrary/GetProcAddressを利用できます。
-コアを直接組み込む場合や再ビルドする場合は、別配布のソースパッケージを使用してください。
+- Version: 0.12
+- Platform: Windows x64
+- Version string: `0.12 / C ABI 1`
+- C ABI: 1 (17 exported functions)
+- DLL SHA-256: `0ce83b204dc20c917d83cbc25d01c3f3912456adc82afc2502687705a2144306`
 
-### ライセンス
+PE形式、公開関数名、埋込みバージョン文字列を静的確認しました。
+Windows上での実行検証および再現ビルドによるソースとの一致確認は行っていません。
+実機録音検証・回帰テストの結果はソース版の検証資料を参照してください。
 
-本プロジェクトは0BSDです。許諾本文と著作権表示は[LICENSE.txt](LICENSE.txt)を参照してください。
-
-### 内容と確認範囲
-
-提供されたビルド済みDLLを、ファイル名だけ`independent_opm.dll`に統一して収録しています。DLL本体のバイト列は変更していません。
-PEヘッダーのx64指定、内部バージョン文字列`0.11b / C ABI 1`、17個の公開API（状態保存・復元を含む）を静的に確認しました。直接のインポート先はKERNEL32.dllです。
-この梱包作業ではWindows上でのロード・再生試験や、ソースとの再現ビルド比較は行っていません。
-実機とのビット一致・サイクル一致を保証するものではありません。
-SHA256SUMS.txtは各同梱ファイルの照合用です。
-
-## English
-
-Independent OPM generates stereo PCM from YM2151 register writes. This package is for Windows x64 applications, not 32-bit hosts. Place `independent_opm.dll` in the location required by your host application. Close the host before replacing an existing DLL. The DLL is not a standalone player and does not parse MDX/PDX files.
-
-C ABI 1 declarations and an API overview are included. No import library is supplied; dynamic loading through LoadLibrary/GetProcAddress is available. Obtain the separate source package for rebuilding or direct core integration.
-
-License: 0BSD; see LICENSE.txt. The supplied DLL bytes are unchanged. PE architecture, version string and 17 exports were inspected statically. This packaging task did not execute the DLL on Windows or verify a reproducible build against source. Hardware bit/cycle accuracy is not guaranteed.
+PE architecture, export names and embedded version string were checked statically.
+Windows runtime behavior and reproducible-build equivalence were not tested here.
+See the source package for hardware measurements and source regression results.

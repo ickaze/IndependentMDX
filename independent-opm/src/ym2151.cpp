@@ -196,7 +196,9 @@ Stereo Ym2151::synthesize() {
             double value = 0;
             if (op.stage != Envelope::off) {
                 if (ch==7 && slot==3 && (registers_[0x0f]&128))
-                    value = (random_.state&1 ? -1 : 1)*std::max(0.0,1-attenuation/96);
+                    // 43NOISE: noise level is approximately 1/4 of a TL0 sine peak.
+                    // Flat-EG normalization only; EG/AM and endpoint quantization remain approximate.
+                    value = .25*(random_.state&1 ? -1 : 1)*std::max(0.0,1-attenuation/96);
                 else value = wave(op.phase,mod_cycles)*std::pow(10.0,-attenuation/20);
             }
             double cycles=frequency(ch,slot,cents)/native_rate();

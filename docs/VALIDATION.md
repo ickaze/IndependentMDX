@@ -1,4 +1,14 @@
-# IndependentMDX 0.24 — validation
+# IndependentMDX 0.25 — validation
+
+## 0.25 playback corrections
+
+All 68 native regression groups pass. The added MA square test uses depth
+9*256 with WAVE1 and depth 9 with WAVE5, period 12, MD0 and MAON. Both
+produce carrier TL 40/49 from base 40, rather than clipping to 0/127.
+Windows GUI and CLI are cross-built. GUI logging and physical output
+switching are not executed here. Output changes restart the same file with
+its selected bank, seek through LiveSession before opening audio, and restore
+pause only after seeking so the paused voice snapshot belongs to that position.
 
 ## 0.24 monitor correction
 
@@ -148,3 +158,102 @@ Windows x64 GUI/CLI and x86 helper builds succeed. GUI test code checks the drag
 ## Copyright refresh in 0.17
 
 The final source subset was refreshed from the copyright-bearing 0.11b archive. Comparing each used upstream file against the prior archive shows only the added copyright comment/notice; executable code is unchanged. The private monitor retains the same changes and updated notices. Root/bin third-party notices contain the complete updated core license. The supplied DLL remains byte-identical to independent_opm(2).dll. No additional rebuild or test run was needed for comment-only source edits and external license text updates.
+
+## 0.25 attached-data MA verification and error collection
+
+A supplied test track was rendered through the register-trace path for its first three
+seconds. Register 0x70 now alternates 0x1a/0x11 during square MA; configuration
+writes before note-on include 0x17. The 68 native groups pass. The user's
+music is not distributed in this archive.
+The random hardware LFO is selected with register 0x1b=3 in this file; PMD=60
+and AMD changes from 60 to 42 at startup. No hardware recording or reference
+trace is available to establish the cause of the reported excessive noise.
+No speculative hardware-LFO gain adjustment was made.
+The seven supplied error rows cannot establish valid instruction boundaries
+or intended q/repeat behavior. Those checks remain enabled pending the actual
+failing MDX files; unknown opcodes and unmatched repeats are not skipped.
+Windows focus restoration and file collection are cross-compiled but have not
+been executed on native Windows in this environment.
+
+## 0.25 MD0 phase and browser/headless update
+
+A two-note MA regression (MD0, 17-tick notes, 12-tick square half-period)
+checks TL=49 at both retriggers. Previously the second note inherited phase.
+69 native groups pass. Browser title workers deliver path-keyed results via
+an isolated queue; UI timer applies text only, avoiding worker HWND access.
+Headless validation enters before window creation and uses analysisOnly with
+Player::analyze; it does not load the runtime DLL or open audio devices.
+Windows execution of the browser and command-line entry remains unverified.
+
+## 0.25 collected corpus comparison
+
+304 attached MDX files were analyzed with the same Linux analysisOnly probe,
+without PDX banks, before and after this correction. Terminal exceptions are
+counted separately from missing-voice/sample diagnostics:
+
+| Result | Before | After |
+| --- | ---: | ---: |
+| Analysis completed | 98 | 236 |
+| 3600-second score-time limit | 26 | 29 |
+| Terminal exception | 180 | 39 |
+
+These counts do not establish audio fidelity or absence of nonfatal errors.
+The corpus is not redistributed. Positive F1 entries were observed as initial
+track relocation stubs. Raw q values above eight are now processed with the
+existing proportional gate arithmetic; exact original-driver rounding and
+8-bit overflow behavior remain unverified. Zero repeat counters are expanded
+to 256 iterations. No masking of command bytes or unchecked jumps was added.
+70 native regression groups pass, including a forward relocation and exactly
+256 key-ons from repeat count zero. Windows GUI/CLI cross-build successfully;
+parent-console output has not been executed on native Windows here.
+
+## 0.25 second collected corpus: sync recovery
+
+246 MDX files were supplied; 110 have identical contents to the first corpus.
+Without PDX, terminal analysis outcomes before/after the bounded EF recovery:
+completed 137/138, score-time limit 40/40, terminal errors 69/68.
+Missing-voice and sample diagnostics are separate; completion is not audio
+fidelity or error-free playback. One supplied test track completes analysis after ignoring the
+nonexistent destination 16. another supplied test track passes destination 47 but then fails an
+out-of-range jump (target 12890, permitted 89..2463); that check remains.
+Invalid EF sends emit diagnostics with value/range/offset and remain logged
+and collected. Regression covers destinations 9,16,47,255, checks the warning
+and verifies the following note executes. All 71 native groups pass.
+Windows GUI/CLI cross-built; native Windows execution is unverified.
+The attached corpus is not redistributed.
+
+## 0.25 F1 timeline correction
+
+The former sign-only classification marked backward relocation as an immediate
+loop/end. In the first attached corpus 32 analysis outcomes changed after
+tracking visited destinations. One supplied test track changed from duration 0.5 with no
+positive loop span to duration/loop end 21.2992 seconds. This is computed
+score timing, not a measured hardware recording. The new regression compares
+a forward-then-backward relocated track against a contiguous equivalent:
+duration, no-loop classification, rendered audio and displayed position match.
+Only the established loop-end F1 increments the loop count on later passes.
+72 native groups pass. Windows binaries cross-built; native GUI unverified.
+
+## 0.25 dependency update
+
+The 0.12 source/API/license subset and Windows x64 DLL replace 0.11b.
+The visualization fork retains its KON mapping and caches, with the same
+0.25 noise amplitude factor added. Runtime DLL bytes match the 0.12 binary
+package; no upstream test programs or measurement assets are distributed.
+72 native groups pass with the updated source. Windows executables were
+cross-built. DLL execution on Windows remains unverified.
+
+## 0.25 auxiliary-loop transport verification
+
+Three additional supplied tracks reproduced premature wrapping: a short
+auxiliary loop was selected while longer finite tracks were still playing.
+Analysis now rejects a transport loop ending before the full score boundary.
+The resulting non-looping durations, including the existing 0.5-second tail,
+are 0.698144, 2.87773 and 0.797216 seconds. These are computed score timings,
+not comparisons against a reference recording. The supplied music is not
+distributed and its filenames are omitted from documentation.
+
+A synthetic regression combines a short auxiliary loop with a longer finite
+track and checks both the non-loop classification and advancing playback
+position. All 73 native regression groups pass. Windows x64 GUI and CLI
+cross-build successfully; native Windows playback remains unverified.

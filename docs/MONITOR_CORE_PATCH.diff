@@ -53,10 +53,13 @@
          manual_keys_[ch] = 0;
          for (unsigned slot=0; slot<4; ++slot) {
              const bool on = (v & (1u << key_bit[slot])) != 0;
-@@ -197,7 +201,12 @@
+@@ -196,10 +200,13 @@
+             double value = 0;
              if (op.stage != Envelope::off) {
                  if (ch==7 && slot==3 && (registers_[0x0f]&128))
-                     value = (random_.state&1 ? -1 : 1)*std::max(0.0,1-attenuation/96);
+-                    // 43NOISE: noise level is approximately 1/4 of a TL0 sine peak.
+-                    // Flat-EG normalization only; EG/AM and endpoint quantization remain approximate.
+                     value = .25*(random_.state&1 ? -1 : 1)*std::max(0.0,1-attenuation/96);
 -                else value = wave(op.phase,mod_cycles)*std::pow(10.0,-attenuation/20);
 +                else {
 +                    auto &gain=gain_cache_[ch][slot];
@@ -67,7 +70,7 @@
              }
              double cycles=frequency(ch,slot,cents)/native_rate();
              auto increment=static_cast<std::uint64_t>(std::llround(cycles*4294967296.0));
-@@ -248,8 +257,9 @@
+@@ -250,8 +257,9 @@
              }
          }
          previous_outputs_[ch] = out;
@@ -79,7 +82,7 @@
      }
      return mix;
  }
-@@ -329,7 +339,7 @@
+@@ -331,7 +339,7 @@
  // Explicit, versioned serialization: no object padding, addresses or callbacks.
  #include "state_codec.hpp"
  #include <memory>
@@ -88,7 +91,7 @@
  template<class Archive> void Ym2151::state_fields(Archive& a) {
      a(clock_hz_,registers_);
      for(auto& ch:operators_) for(auto& o:ch)a(o.phase,o.attenuation,o.stage,o.key);
-@@ -350,6 +360,7 @@
+@@ -352,6 +360,7 @@
          if(c.random_.state>0x1ffff||c.random_.age>=32u*(32u-(c.registers_[15]&31))||c.random_.latch_age>=detail::MeasuredRandom::period(c.registers_[24])) return false;
          for(const auto& ch:c.operators_)for(const auto& o:ch)if(static_cast<unsigned>(o.stage)>4)return false;
          for(unsigned i=0;i<8;++i)if(c.manual_keys_[i]>15||c.left_previous_mask_[i]>15||c.right_previous_mask_[i]>15)return false;

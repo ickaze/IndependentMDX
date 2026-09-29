@@ -23,7 +23,7 @@ int run(const std::vector<std::string> &args) {
             };
             std::string arg = args[i];
             if (arg == "--help" || arg == "-h") {
-                std::cout << "IndependentMDX 0.24\n"
+                std::cout << "IndependentMDX 0.25\n"
                              "independent-mdx song.mdx [--pdx bank.pdx] [--wav output.wav]\n"
                              "independent-mdx bank.pdx --sample 0 [--format 4] [--wav output.wav]\n"
                              "Options: --loops 2 (0=infinite) --key 0 (-24..24) --key-mode 1 (0=FM,1=PCM "
@@ -32,7 +32,7 @@ int run(const std::vector<std::string> &args) {
                              "--measured-output-timing / --no-measured-output-timing --rate 48000 --info\n"
                              "F0..F4=OKI ADPCM; F5=big-endian signed P16; F6=signed P8.\n"
                              "Windows playback: Space=pause/resume, Esc=stop. Ctrl+C=stop.\n"
-                             "Uses Independent OPM 0.11b; see THIRD_PARTY_NOTICES.txt.\n";
+                             "Uses Independent OPM 0.12; see THIRD_PARTY_NOTICES.txt.\n";
                 return 0;
             } else if (arg == "--pdx")
                 pdxPath = std::filesystem::u8path(value());
