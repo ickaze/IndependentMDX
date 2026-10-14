@@ -1,5 +1,10 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #include "player.h"
+#include "vgm.h"
 #include "win_audio.h"
+#include "vgz_export.h"
 #include <csignal>
 #include <iostream>
 #include <stdexcept>
@@ -10,6 +15,7 @@
 static volatile std::sig_atomic_t stopped = 0;
 static void interrupt(int) { stopped = 1; }
 int run(const std::vector<std::string> &args) {
+    if(auto result=mdx::runVgzBatch(args,[](const std::string &s){std::cout<<s<<std::endl;})) return *result;
     try {
         mdx::Options options;
         std::filesystem::path input, output, pdxPath;
@@ -23,16 +29,18 @@ int run(const std::vector<std::string> &args) {
             };
             std::string arg = args[i];
             if (arg == "--help" || arg == "-h") {
-                std::cout << "IndependentMDX 0.25\n"
-                             "independent-mdx song.mdx [--pdx bank.pdx] [--wav output.wav]\n"
+                std::cout << "IndependentMDX 0.33.5\n"
+                             "independent-mdx song.mdx|song.vgm|song.vgz|song.mrl|song.mrz [--pdx bank.pdx] [--wav output.wav]\n"
                              "independent-mdx bank.pdx --sample 0 [--format 4] [--wav output.wav]\n"
+                             "independent-mdx --vgz-folder DIRECTORY [--loops 2] [--seconds 3600] [--no-pcm]\n"
+                             "independent-mdx --reglog-folder DIRECTORY [--loops 2] [--seconds 3600] [--embed-pdx|--no-embed-pdx] [--mrz] [--mrl-v1]\n"
                              "Options: --loops 2 (0=infinite) --key 0 (-24..24) --key-mode 1 (0=FM,1=PCM "
                              "rate,2=PCM pitch) --seconds 600 --fade 3 --gain 0.40 "
                              "--pcm-gain 1.0 --independent-gain 2.0 --fm-mask 0 --pcm-mask 0 --dac-delay "
                              "--measured-output-timing / --no-measured-output-timing --rate 48000 --info\n"
                              "F0..F4=OKI ADPCM; F5=big-endian signed P16; F6=signed P8.\n"
                              "Windows playback: Space=pause/resume, Esc=stop. Ctrl+C=stop.\n"
-                             "Uses Independent OPM 0.12; see THIRD_PARTY_NOTICES.txt.\n";
+                             "Uses Independent OPM 0.14; see THIRD_PARTY_NOTICES.txt.\n";
                 return 0;
             } else if (arg == "--pdx")
                 pdxPath = std::filesystem::u8path(value());
@@ -82,6 +90,8 @@ int run(const std::vector<std::string> &args) {
         }
         if (input.empty())
             throw std::runtime_error("Specify an MDX file; use --help for usage");
+        if (!output.empty() && options.loops == 0) options.loops = 2;
+        if (!output.empty() && !explicitTimeLimit) options.maxSeconds = 0;
         if (!output.empty()) {
             auto target = std::filesystem::weakly_canonical(output);
             if (target == std::filesystem::weakly_canonical(input) ||
@@ -112,6 +122,11 @@ int run(const std::vector<std::string> &args) {
             if (sample < 0)
                 throw std::runtime_error("PDX is a sample bank. Specify --sample N or --info");
             source = std::make_unique<mdx::SamplePlayer>(pdx, sample, format, options);
+        } else if(mdx::isVgm(input)) {
+            auto song = mdx::loadVgmSong(input,pdxPath);
+            std::cout << song.title << "\nVGM: YM2151 " << song.clock << " Hz / " << double(song.samples)/44100 << " seconds\n";
+            if(info) return 0;
+            source=std::make_unique<mdx::VgmPlayer>(std::move(song),options);
         } else {
             mdx::Song song(mdx::readFile(input));
             std::cout << song.title << "\nTracks: " << song.tracks.size()
@@ -131,6 +146,8 @@ int run(const std::vector<std::string> &args) {
             source = std::move(player);
         }
         std::signal(SIGINT, interrupt);
+        if (!output.empty() && options.loops == 0) options.loops = 2;
+        if (!output.empty() && !explicitTimeLimit) options.maxSeconds = 0;
         if (!output.empty()) {
             mdx::writeWav(*source, output, options.sampleRate, [] { return stopped != 0; });
             std::cout << "WAV: " << output.u8string() << "\n";

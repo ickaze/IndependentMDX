@@ -1,4 +1,4 @@
-IndependentMDX 0.25 — third-party notices
+IndependentMDX 0.33.5 — third-party notices
 
 Zero-Clause BSD
 
@@ -20,7 +20,19 @@ synthetic samples in samples/. This license does not replace the licenses
 of Independent OPM, C86CTL interface declarations, or standard compiler/runtime components; see THIRD_PARTY_NOTICES.txt.
 
 
-Independent OPM 0.12 (C ABI DLL distribution and visualization-only monitor_core copy)
+Independent OPM 0.14 (unmodified C ABI DLL and public API header)
+
+BSD Zero Clause License
+
+Copyright (C) 2026 by I.C.KaZe
+
+Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+
+NOTE-MDX-Workbench 2.8.21 instrument text and knob controls
+Adapted in src/voice_text.h and src/voice_controls.h.
 
 BSD Zero Clause License
 
@@ -64,7 +76,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 Application EXEs are cross-compiled with Zig 0.13.0.
-The Independent OPM DLL is the user-supplied x64 binary, preserved byte-for-byte.
+Independent OPM is a project by I.C.KaZe. The bundled x64 DLL is from
+the Independent OPM 0.14 Windows package and is preserved byte-for-byte.
 
 ==== Zig distribution: LICENSE ====
 The MIT License (Expat)
@@ -2963,5 +2976,28 @@ Files: lib/compiler_rt/sin.zig
 Optional X68Sound.dll (user supplied, not distributed in this package)
 The x86 bridge dynamically calls the public X68Sound C API. No X68Sound
 implementation code or binary is embedded. The external DLL remains subject
-to its own accompanying license. Independent OPM and monitor_core do not
+to its own accompanying license. Independent OPM does not
 contain X68Sound code.
+
+
+Lhasa 0.6.0 — statically linked LZH archive reader
+https://github.com/fragglet/lhasa/tree/v0.6.0
+Source: third_party/lhasa/lib; ISC license follows.
+
+## ISC License
+
+Copyright (c) 2011-2025, Simon Howard
+
+Permission to use, copy, modify, and/or distribute this software
+for any purpose with or without fee is hereby granted, provided
+that the above copyright notice and this permission notice appear
+in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR
+CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
+NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

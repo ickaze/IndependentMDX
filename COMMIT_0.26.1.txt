@@ -1,0 +1,7 @@
+Fix instrument editor change colors and persist window state
+
+- Highlight modified MML parameters and instrument list entries in red
+- Size the instrument window to fit nine MML rows at its minimum dimensions
+- Save and restore visibility, bounds and window state without changing existing preferences
+- Toggle instrument window visibility from the main button
+- Add parameter-span and Windows UI regression checks; document the system RichEdit dependency

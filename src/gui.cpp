@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #define UNICODE
 #define _UNICODE
 #define NOMINMAX
@@ -6,10 +9,14 @@
 #include "carrier_notes.h"
 #include "live_session.h"
 #include "player.h"
+#include "vgm.h"
+#include "archive.h"
+#include "vgz_export.h"
 #include "voice_text.h"
 #include "win_audio.h"
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <fstream>
@@ -17,6 +24,8 @@
 #include <map>
 #include <mutex>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <ole2.h>
 #include <shlwapi.h>
 #include <sstream>
 #include <stdexcept>
@@ -24,11 +33,14 @@
 #include <utility>
 #include <uxtheme.h>
 #include <windows.h>
+#include <richedit.h>
 #include <windowsx.h>
 
 namespace {
 HWND window, pathText, titleText, statusText, sampleEdit, formatBox, loopsEdit, gainEdit, pcmGainEdit,
     independentGainEdit, dacButton, measuredButton;
+HWND positionLabel;
+std::atomic<int> seekProgressPercent{-1};
 HWND outputBox, midiBox, seekSlider, timeLabel, voiceWindow, voiceEdit, registerEdit, voiceChannel;
 HWND voiceList, voiceListLabel, polyBox, viewBox, masterSlider, fmDelayEdit, pcmDelayEdit, aftertouchButton;
 auto liveMidiPolyphonic = std::make_shared<std::atomic<bool>>(true);
@@ -38,6 +50,7 @@ auto livePcmGain = std::make_shared<std::atomic<double>>(1);
 HWND splitter, carrierButton, speedSlider, speedValue, waveformButton, keyboardHint, keyboardHintTip;
 bool languageUpdating = false;
 bool carrierPitch = false, splitterBuffered = false;
+auto liveLoops = std::make_shared<std::atomic<int>>(2);
 auto liveSpeed = std::make_shared<std::atomic<int>>(100);
 int splitPermille = 620, splitMinimum = 640, splitMaximum = 900;
 bool fullscreen = false;
@@ -65,6 +78,9 @@ void toggleFullscreen() {
 }
 bool pianoRoll = false;
 HMIDIIN midiInput = nullptr;
+int activeMidiDevice = -1;
+std::vector<std::filesystem::path> pendingCommandFiles;
+constexpr ULONG_PTR commandFileTag = 0x494d4458;
 mdx::C86Output hardware;
 std::atomic<int> selectedOutput{0};
 auto retainedVoices = std::make_shared<mdx::VoiceState>();
@@ -152,7 +168,7 @@ HWND previousFocus=nullptr;
 void startMidiIdle();
 void closeMidi();
 void updateAdvancedLanguage();
-void showVoices();
+void showVoices(bool toggle = true);
 void exportVoices();
 void refreshVoiceWindow();
 HWND infiniteButton, autoNextButton, keySlider, keyValue, keyModeBox;
@@ -310,8 +326,8 @@ std::filesystem::path choose(bool save, bool pdxOnly = false) {
     dialog.nMaxFile = 32768;
     dialog.lpstrFilter = save      ? tr(L"WAV音声\0*.wav\0\0", L"WAV audio\0*.wav\0\0")
                          : pdxOnly ? tr(L"PDXサンプル\0*.pdx\0\0", L"PDX samples\0*.pdx\0\0")
-                                   : tr(L"MDX / PDX\0*.mdx;*.pdx\0すべてのファイル\0*.*\0\0",
-                                        L"MDX / PDX\0*.mdx;*.pdx\0All files\0*.*\0\0");
+                                   : tr(L"MDX / PDX / VGM / VGZ / MRL / MRZ / ZIP / LZH\0*.mdx;*.pdx;*.vgm;*.vgz;*.mrl;*.mrz;*.zip;*.lzh;*.lha\0すべてのファイル\0*.*\0\0",
+                                        L"MDX / PDX / VGM / VGZ / MRL / MRZ / ZIP / LZH\0*.mdx;*.pdx;*.vgm;*.vgz;*.mrl;*.mrz;*.zip;*.lzh;*.lha\0All files\0*.*\0\0");
     dialog.Flags =
         OFN_EXPLORER | OFN_NOCHANGEDIR | OFN_PATHMUSTEXIST | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
     dialog.lpstrDefExt = save ? L"wav" : nullptr;
@@ -320,9 +336,11 @@ std::filesystem::path choose(bool save, bool pdxOnly = false) {
     return {};
 }
 bool isPdx(const std::filesystem::path &file) { return _wcsicmp(file.extension().c_str(), L".pdx") == 0; }
-void load(const std::filesystem::path &file) {
+void navigate(std::filesystem::path target, bool remember);
+bool load(const std::filesystem::path &file) {
+    if(mdx::isArchive(file)) { navigate(file,true); return false; }
     if (file.empty())
-        return;
+        return false;
     stop();
     try {
         std::wstring description;
@@ -331,14 +349,17 @@ void load(const std::filesystem::path &file) {
             description =
                 L"PDX: " + std::to_wstring(bank.entries.size()) +
                 tr(L" スロット。下の番号を選んで試聴できます。", L" slots. Select a sample number below.");
+        } else if(mdx::isVgm(file)) {
+            auto song = mdx::loadVgmSong(file);
+            description=wide(song.title)+(song.registerLog?L"\r\nMRL / YM2151 / ":L"\r\nVGM / YM2151 / ")+std::to_wstring(song.clock)+L" Hz";
+            std::lock_guard<std::mutex> lock(retainedVoices->mutex);
+            retainedVoices->defined.fill(false);retainedVoices->initialDefined.fill(false);retainedVoices->valid.fill(false);retainedVoices->used.fill(false);
+            ++retainedVoices->catalogRevision;
         } else {
             mdx::Song song(mdx::readFile(file));
             {
                 std::lock_guard<std::mutex> lock(retainedVoices->mutex);
-                retainedVoices->definitions = song.voices;
-                retainedVoices->defined = song.hasVoice;
-                retainedVoices->used.fill(false);
-                ++retainedVoices->catalogRevision;
+                retainedVoices->beginVoiceSession(song.voices, song.hasVoice);
                 for (auto &request : retainedVoices->requestedVoice)
                     request = -1;
             }
@@ -349,13 +370,16 @@ void load(const std::filesystem::path &file) {
         explicitPdx.clear();
         SetWindowTextW(pathText, file.c_str());
         SetWindowTextW(titleText, description.c_str());
+        EnableWindow(GetDlgItem(window,41), !mdx::isVgm(file));
         EnableWindow(sampleEdit, isPdx(file));
         EnableWindow(formatBox, isPdx(file));
         status(tr(L"準備完了", L"Ready"));
         playbackSeconds = 0;
+        return true;
     } catch (const std::exception &e) {
         logPlaybackError(file,"",e.what());
-        MessageBoxW(window, diagnostic(e.what()).c_str(), L"MDX / PDX", MB_OK | MB_ICONERROR);
+        MessageBoxW(window, diagnostic(e.what()).c_str(), L"IndependentMDX", MB_OK | MB_ICONERROR);
+        return false;
     }
 }
 int integer(HWND control, int low, int high) {
@@ -380,7 +404,7 @@ void logPlaybackError(const std::filesystem::path &file, const std::string &titl
         auto folder=std::filesystem::path(path).parent_path();
         const bool dataError=error.find("file offset")!=std::string::npos ||
             error.find("MDX")!=std::string::npos || error.find("voice")!=std::string::npos;
-        if(collectErrorMdx && dataError && !isPdx(file)) {
+        if(collectErrorMdx && dataError && !isPdx(file) && !mdx::isVgm(file)) {
           try {
             std::error_code ec;
             auto destination=folder/L"ErrorMDX";
@@ -406,7 +430,7 @@ void logPlaybackError(const std::filesystem::path &file, const std::string &titl
         log<<field(std::filesystem::absolute(file).u8string())<<','<<field(title)<<','<<field(error)<<"\r\n";
     } catch (...) { }
 }
-void start(bool exportWav, double resumePosition = 0, bool resumePaused = false) {
+void start(bool exportWav, double resumePosition = 0, bool resumePaused = false, bool continuing = false) {
     if (input.empty()) {
         load(choose(false));
         if (input.empty())
@@ -423,6 +447,10 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false)
         mdx::Options options;
         options.voiceState = retainedVoices;
         options.fastSeek = !exportWav;
+        seekProgressPercent = -1;
+        options.seekProgress = [](double current, double target) {
+            seekProgressPercent = target>0 && current<target ? int(current/target*100) : -1;
+        };
         options.fmBackend = selectedOutput == 1 ? 1 : 0;
         options.keyShift = liveKeyShift->load();
         options.keyMode = liveKeyMode->load();
@@ -465,7 +493,8 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false)
             hardware.setDelay(options.fmDelayMs);
         }
         options.loops =
-            SendMessageW(infiniteButton, BM_GETCHECK, 0, 0) == BST_CHECKED ? 0 : integer(loopsEdit, 1, 1000);
+            !exportWav && SendMessageW(infiniteButton, BM_GETCHECK, 0, 0) == BST_CHECKED ? 0 : integer(loopsEdit, 1, 1000);
+        if(!exportWav) { liveLoops->store(options.loops); options.liveLoops=liveLoops; }
         options.maxSeconds = 0; // GUI transport covers the complete song; loops still bound finite playback.
         options.gain = integer(gainEdit, 0, 400) / 100.0;
         options.pcmGain = integer(pcmGainEdit, 0, 400) / 100.0;
@@ -485,7 +514,7 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false)
             lastPlayedBank = bankPath;
             settingsChanged();
         }
-        if (!isPdx(file))
+        if (!isPdx(file) && !mdx::isVgm(file))
             lastPlayedMdx = file;
         songPosition = 0;
         songDuration = 0;
@@ -496,16 +525,24 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false)
         playbackSeconds = 0;
         status(exportWav ? tr(L"WAVを書き出しています…", L"Exporting WAV...") : tr(L"再生中", L"Playing"));
         const uint64_t generation = playbackGeneration.load();
-        worker = std::thread([file, bankPath, options, sample, format, output, generation, logTitle, resumePosition, resumePaused] {
+        worker = std::thread([file, bankPath, options, sample, format, output, generation, logTitle, resumePosition, resumePaused, continuing] {
             try {
                 std::unique_ptr<mdx::Source> source;
                 mdx::Player *music = nullptr;
                 if (isPdx(file)) {
                     mdx::Pdx bank(mdx::readFile(file));
                     source = std::make_unique<mdx::SamplePlayer>(bank, sample, format, options);
+                } else if(mdx::isVgm(file)) {
+                    auto song = mdx::loadVgmSong(file,bankPath);
+                    *logTitle=song.title;
+                    source=std::make_unique<mdx::VgmPlayer>(std::move(song),options);
                 } else {
                     mdx::Song song(mdx::readFile(file));
                     *logTitle=song.title;
+                    if (output.empty() && !continuing) {
+                        std::lock_guard<std::mutex> lock(retainedVoices->mutex);
+                        retainedVoices->beginVoiceSession(song.voices, song.hasVoice);
+                    }
                     std::shared_ptr<mdx::Pdx> bank;
                     try {
                         bank = mdx::locatePdx(song, file, bankPath);
@@ -631,7 +668,7 @@ void organizeControls() {
         return item(L"STATIC",ja,en,0,0,24,0);
     };
     HWND playbackLabel=addLabel(L"再生",L"Playback");
-    HWND positionLabel=addLabel(L"再生位置",L"Position");
+    positionLabel=addLabel(L"再生位置",L"Position");
     HWND timingLabel=addLabel(L"出力タイミング",L"Output timing");
     HWND instrumentsLabel=addLabel(L"音色",L"Instruments");
     HWND volumeLabel=caption(named(L"全体音量 % (0–400)"),L"音量 / 全体 %",L"Volume / Master %");
@@ -735,6 +772,10 @@ void layout() {
                          fontMetrics.tmHeight + scale(2));
             SendMessageW(it.handle, CB_SETITEMHEIGHT, 0, fontMetrics.tmHeight + scale(2));
         }
+        if(it.handle==positionLabel) for(auto text:{L"再生位置（検索100%）",L"Position (seeking 100%)"}) {
+            SIZE extent{};GetTextExtentPoint32W(dc,text,int(wcslen(text)),&extent);
+            width=std::max(width,int(extent.cx)+scale(8));
+        }
         bool first=measured.empty() || items[measured.size()-1].row!=it.row;
         if(first && it.row>=3 && it.row<20 && it.row!=14 && it.kind==ControlKind::label) labelColumn=std::max(labelColumn,width);
         measured.push_back(width);
@@ -761,7 +802,7 @@ void layout() {
     splitMaximum = canvasWidth - minKeyboard - 3 * margin - bar;
     content = std::clamp(canvasWidth * splitPermille / 1000, splitMinimum, splitMaximum);
     int keyboardWidth = canvasWidth - content - 3 * margin - bar;
-    int totalHeight = scale(120) + 2 * (controlHeight + scale(4)) + 2 * margin;
+    int totalHeight = scale(120) + 3 * (controlHeight + scale(4)) + 2 * margin;
     for (int row=0;row<21;++row)
         if (heights[row]) totalHeight+=heights[row]+scale(3)+((row==3 || row==10 || row==12 || row==17)?scale(5):0);
     virtualWidth = canvasWidth;
@@ -815,11 +856,14 @@ void layout() {
     place(upButton, x + scale(78), y, scale(70), h, TRUE);
     place(folderEdit, x + scale(156), y, content - scale(156), h, TRUE);
     y += h + gap;
-    place(mdxFilter, x, y, scale(75), h, TRUE);
-    place(pdxFilter, x + scale(80), y, scale(75), h, TRUE);
-    place(bookmarkAdd, x + scale(160), y, scale(125), h, TRUE);
-    place(bookmarkRemove, x + scale(293), y, scale(90), h, TRUE);
-    place(bookmarkBox, x + scale(391), y, content - scale(391), scale(240), TRUE);
+    place(mdxFilter, x, y, scale(60), h, TRUE);
+    place(pdxFilter, x + scale(65), y, scale(60), h, TRUE);
+    place(vgmFilter, x + scale(130), y, scale(100), h, TRUE);
+    place(allFilter,x+scale(235),y,scale(85),h,TRUE);
+    y += h + gap;
+    place(bookmarkAdd, x + scale(0), y, scale(125), h, TRUE);
+    place(bookmarkRemove, x + scale(133), y, scale(90), h, TRUE);
+    place(bookmarkBox, x + scale(231), y, std::max(scale(40),content - scale(231)), scale(240), TRUE);
     SendMessageW(bookmarkBox, CB_SETDROPPEDWIDTH, content, 0);
     y += h + gap;
     place(browserList, x, y, content, virtualHeight - scrollY - y - margin, TRUE);
@@ -924,6 +968,7 @@ void changeLanguage(bool savePreference = true) {
     }
     extrasLanguage();
     updateAdvancedLanguage();
+        if(voiceReset) SetWindowTextW(voiceReset,tr(L"リセット",L"Reset"));
     if (savePreference)
         settingsChanged();
     layout();
@@ -961,8 +1006,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             SendMessageW(languageBox, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name));
         SendMessageW(languageBox, CB_SETCURSEL, japanese ? 0 : 1, 0);
         pathText = item(L"EDIT", L"", L"", 1, 640, 28, 20, ES_READONLY | ES_AUTOHSCROLL, true);
-        titleText = item(L"STATIC", L"MDX / PDXファイルを開くか、ここへドロップしてください。",
-                         L"Open an MDX / PDX file, or drop it here.", 2, 640, 36, 21, 0, true);
+        titleText = item(L"STATIC", L"MDX / PDX / VGM / VGZを開くか、ここへドロップしてください。",
+                         L"Open an MDX / PDX / VGM / VGZ file, or drop it here.", 2, 640, 36, 21, 0, true);
         item(L"STATIC", L"周回数 (1–1000)", L"Loops (1–1000)", 3, 100, 28, 0);
         loopsEdit = item(L"EDIT", L"2", L"2", 3, 70, 28, 22, WS_TABSTOP | ES_NUMBER);
         item(L"STATIC", L"全体音量 % (0–400)", L"Master volume % (0–400)", 18, 190, 28, 0);
@@ -1038,18 +1083,19 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         speedValue = item(L"EDIT", L"100", L"100", 11, 55, 28, 52, ES_READONLY);
         waveformButton=item(L"BUTTON",L"波形表示",L"Waveforms",21,0,28,53,WS_TABSTOP|BS_AUTOCHECKBOX);
         SendMessageW(waveformButton,BM_SETCHECK,BST_CHECKED,0);
-        keyboardHint=item(L"STATIC",L"FM / PCM 鍵盤クリックで消音（FM波形は推定）",
-            L"FM / PCM Click to mute (FM waves: simulated)",21,0,28,0,SS_RIGHT|SS_CENTERIMAGE|SS_ENDELLIPSIS);
+        keyboardHint=item(L"STATIC",L"FM / PCM 鍵盤クリックで消音",
+            L"FM / PCM Click to mute",21,0,28,0,SS_RIGHT|SS_CENTERIMAGE|SS_ENDELLIPSIS);
         keyboardHintTip=CreateWindowExW(WS_EX_TOPMOST,TOOLTIPS_CLASSW,nullptr,WS_POPUP|TTS_ALWAYSTIP|TTS_NOPREFIX,
             CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,window,nullptr,GetModuleHandleW(nullptr),nullptr);
         TOOLINFOW hintTool{sizeof(hintTool)};
         hintTool.hwnd=window; hintTool.uId=UINT_PTR(keyboardHint); hintTool.uFlags=TTF_IDISHWND|TTF_SUBCLASS;
-        hintTool.lpszText=const_cast<wchar_t*>(L"FM / PCM Click to mute (FM waves: simulated)");
+        hintTool.lpszText=const_cast<wchar_t*>(L"FM / PCM Click to mute");
         SendMessageW(keyboardHintTip,TTM_ADDTOOLW,0,LPARAM(&hintTool));
         SendMessageW(keyboardHintTip,TTM_SETMAXTIPWIDTH,0,scale(480));
         for(auto slider:{speedSlider,keySlider,masterSlider}) SetWindowSubclass(slider,valueSliderSubclass,1,0);
         organizeControls();
         updateAdvancedLanguage();
+        if(voiceReset) SetWindowTextW(voiceReset,tr(L"リセット",L"Reset"));
         createExtras();
         readSettings();
         changeLanguage(false);
@@ -1071,7 +1117,9 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             lastPlayedFile = previous;
             lastPlayedBank = settingText(L"LastPlayedPdx");
             std::error_code error;
-            if (std::filesystem::is_regular_file(lastPlayedFile, error)) {
+            bool available=false;
+            try { available=std::filesystem::is_regular_file(mdx::resolveArchivePath(lastPlayedFile), error); } catch(...) {}
+            if (available) {
                 load(lastPlayedFile);
                 explicitPdx = lastPlayedBank;
             } else
@@ -1082,6 +1130,25 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         SetTimer(hwnd, 1, 33, nullptr);
         return 0;
     }
+    case WM_COPYDATA: {
+        const auto *data=reinterpret_cast<const COPYDATASTRUCT *>(lparam);
+        if(!data || data->dwData!=commandFileTag || !data->lpData ||
+           data->cbData<sizeof(wchar_t) || data->cbData>65536 || data->cbData%sizeof(wchar_t)) return FALSE;
+        const auto *path=static_cast<const wchar_t *>(data->lpData);
+        const size_t length=data->cbData/sizeof(wchar_t);
+        if(path[length-1]!=0 || wcsnlen(path,length)!=length-1) return FALSE;
+        pendingCommandFiles.emplace_back(path);
+        PostMessageW(hwnd,WM_APP+2,0,0);
+        return TRUE;
+    }
+    case WM_APP + 2:
+        if(!pendingCommandFiles.empty()) {
+            auto file=pendingCommandFiles.front();
+            pendingCommandFiles.erase(pendingCommandFiles.begin());
+
+            if(load(file)) start(false);
+        }
+        return 0;
     case WM_APP + 1:
         if (static_cast<uint64_t>(wparam) == playbackGeneration.load() &&
             SendMessageW(autoNextButton, BM_GETCHECK, 0, 0) == BST_CHECKED)
@@ -1153,7 +1220,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
             applyOutputGains();
             settingsChanged();
-            if(resume) { input=playingFile; explicitPdx=playingBank; start(false,position,paused); }
+            if(resume) { input=playingFile; explicitPdx=playingBank; start(false,position,paused,true); }
             return 0;
         }
         if (LOWORD(wparam)==53 && HIWORD(wparam)==BN_CLICKED) {
@@ -1164,19 +1231,28 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             refreshMidiDevices(); return 0;
         }
         if (LOWORD(wparam) == 39 && HIWORD(wparam) == CBN_SELCHANGE) {
-            closeMidi();
             int selection=int(SendMessageW(midiBox, CB_GETCURSEL, 0, 0));
             int index=selection>0 ? int(SendMessageW(midiBox,CB_GETITEMDATA,selection,0)) : -1;
-            if (index >= 0) {
-                if (midiInOpen(&midiInput, UINT(index), DWORD_PTR(window), 0, CALLBACK_WINDOW) !=
-                    MMSYSERR_NOERROR) {
-                    midiInput = nullptr;
-                    SendMessageW(midiBox, CB_SETCURSEL, 0, 0);
-                    status(tr(L"MIDI入力を開けません", L"Cannot open MIDI input"));
-                } else if (midiInStart(midiInput) != MMSYSERR_NOERROR) {
+            if (index == activeMidiDevice && midiInput) return 0;
+            if (index < 0) closeMidi();
+            else {
+                HMIDIIN next = nullptr;
+                MMRESULT error = midiInOpen(&next, UINT(index), DWORD_PTR(window), 0, CALLBACK_WINDOW);
+                if (error == MMSYSERR_NOERROR) error = midiInStart(next);
+                if (error != MMSYSERR_NOERROR) {
+                    if (next) { midiInReset(next); midiInClose(next); }
+                    int restore=0;
+                    for(int n=1;n<SendMessageW(midiBox,CB_GETCOUNT,0,0);++n)
+                        if(midiInput && SendMessageW(midiBox,CB_GETITEMDATA,n,0)==activeMidiDevice) restore=n;
+                    SendMessageW(midiBox, CB_SETCURSEL, restore, 0);
+                    wchar_t detail[MAXERRORLENGTH]{};
+                    midiInGetErrorTextW(error, detail, MAXERRORLENGTH);
+                    status(std::wstring(tr(L"MIDI入力を開けません: ", L"Cannot open MIDI input: ")) +
+                           detail + L" (" + std::to_wstring(error) + L")");
+                } else {
                     closeMidi();
-                    SendMessageW(midiBox, CB_SETCURSEL, 0, 0);
-                    status(L"ERROR: MIDI start failed");
+                    midiInput = next;
+                    activeMidiDevice = index;
                 }
             }
             settingsChanged();
@@ -1191,7 +1267,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
         if (LOWORD(wparam) == 33 && HIWORD(wparam) == BN_CLICKED) {
-            EnableWindow(loopsEdit, SendMessageW(infiniteButton, BM_GETCHECK, 0, 0) != BST_CHECKED);
+            const bool infinite=SendMessageW(infiniteButton,BM_GETCHECK,0,0)==BST_CHECKED;
+            EnableWindow(loopsEdit, !infinite);
+            try { liveLoops->store(infinite ? 0 : integer(loopsEdit,1,1000)); }
+            catch(const std::exception &) {}
             settingsChanged();
             return 0;
         }
@@ -1296,6 +1375,10 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             return 0;
         }
         refreshVoiceWindow();
+        int seekPercent = seekProgressPercent.load();
+        auto progressText = seekPercent>=0 ? std::wstring(tr(L"再生位置（検索",L"Position (seeking ")) + std::to_wstring(seekPercent) + tr(L"%）",L"%)") : tr(L"再生位置",L"Position");
+        wchar_t oldPositionLabel[96]; GetWindowTextW(positionLabel,oldPositionLabel,96);
+        if(progressText!=oldPositionLabel) SetWindowTextW(positionLabel, progressText.c_str());
         double current = seekRequest >= 0 ? seekRequest.load() : songPosition.load(),
                total = songDuration.load();
         wchar_t positionText[128];
@@ -1440,7 +1523,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         DestroyWindow(hwnd);
         return 0;
     case WM_DESTROY:
-        if(titleJob) titleJob->cancelled=true;
+        if(titleJob)titleJob->cancelled=true;
+        {std::unique_lock<std::mutex> lock(titleWorkerMutex);titleWorkersFinished.wait(lock,[]{return titleWorkers==0;});}
         closeMidi();
         stop();
         hardware.close();
@@ -1448,6 +1532,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             DestroyWindow(voiceWindow);
         if (licenseWindow)
             DestroyWindow(licenseWindow);
+        if (documentWindow) DestroyWindow(documentWindow);
+        if (browserImages) {ListView_SetImageList(browserList,nullptr,LVSIL_SMALL);ImageList_Destroy(browserImages);browserImages=nullptr;}
         DeleteObject(uiFont);
         KillTimer(hwnd, 1);
         Gdiplus::GdiplusShutdown(gdiToken);
@@ -1503,6 +1589,20 @@ int validateFolder(const std::filesystem::path &root) {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     int count = 0;
     wchar_t **args = CommandLineToArgvW(GetCommandLineW(), &count);
+    std::vector<std::string> batchArgs;
+    for(int i=0;args && i<count;++i) batchArgs.push_back(std::filesystem::path(args[i]).u8string());
+    if(std::find(batchArgs.begin(),batchArgs.end(),"--vgz-folder")!=batchArgs.end() ||
+       std::find(batchArgs.begin(),batchArgs.end(),"--reglog-folder")!=batchArgs.end()) {
+        AttachConsole(ATTACH_PARENT_PROCESS);
+        auto result=mdx::runVgzBatch(batchArgs,[](const std::string &s) {
+            HANDLE output=GetStdHandle(STD_OUTPUT_HANDLE); DWORD written=0,mode=0;
+            if(GetConsoleMode(output,&mode)) {
+                auto text=wide(s+"\r\n"); WriteConsoleW(output,text.data(),DWORD(text.size()),&written,nullptr);
+            } else {auto text=s+"\r\n";WriteFile(output,text.data(),DWORD(text.size()),&written,nullptr);}
+        });
+        if(args)LocalFree(args);
+        return result.value_or(2);
+    }
     std::filesystem::path commandFile, validationRoot;
     bool validate=false;
     for(int i=1;args && i<count;++i) {
@@ -1512,6 +1612,28 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     }
     if(args) LocalFree(args);
     if(validate) return validationRoot.empty()?2:validateFolder(validationRoot);
+    if(!commandFile.empty()) commandFile=std::filesystem::absolute(commandFile);
+    // Serialize startup so simultaneous file launches reach one GUI instance.
+    HANDLE instanceMutex=CreateMutexW(nullptr,TRUE,L"Local\\IndependentMDX.GuiStartup");
+    if(instanceMutex && GetLastError()==ERROR_ALREADY_EXISTS) {
+        DWORD wait=WaitForSingleObject(instanceMutex,5000);
+        if(wait!=WAIT_OBJECT_0 && wait!=WAIT_ABANDONED) { CloseHandle(instanceMutex); return 1; }
+    }
+    HWND existing=FindWindowW(L"IndependentMDX",nullptr);
+    if(existing) {
+        if(!commandFile.empty()) {
+            auto path=commandFile.wstring();
+            COPYDATASTRUCT data{commandFileTag,DWORD((path.size()+1)*sizeof(wchar_t)),path.data()};
+            DWORD_PTR accepted=0;
+            if(!SendMessageTimeoutW(existing,WM_COPYDATA,0,LPARAM(&data),SMTO_ABORTIFHUNG,5000,&accepted) || !accepted) {
+                if(instanceMutex) { ReleaseMutex(instanceMutex); CloseHandle(instanceMutex); }
+                return 1;
+            }
+        }
+
+        if(instanceMutex) { ReleaseMutex(instanceMutex); CloseHandle(instanceMutex); }
+        return 0;
+    }
     japanese = PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_JAPANESE;
     DWORD saved = setting(L"Language", 2);
     if (saved <= 1)
@@ -1531,14 +1653,19 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     cls.hbrBackground = backgroundBrush;
     RegisterClassW(&cls);
     HWND mainWindow =
-        CreateWindowW(cls.lpszClassName, L"IndependentMDX 0.25",
+        CreateWindowW(cls.lpszClassName, L"IndependentMDX 0.33.5",
                       WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_HSCROLL | WS_VSCROLL, CW_USEDEFAULT,
                       CW_USEDEFAULT, 1320, 840, nullptr, nullptr, instance, nullptr);
+    if(instanceMutex) { ReleaseMutex(instanceMutex); CloseHandle(instanceMutex); }
     if (!mainWindow)
         return 1;
     restoreWindow();
     ShowWindow(mainWindow, restoreMaximized ? SW_SHOWMAXIMIZED : show);
-    if(!commandFile.empty()) load(commandFile);
+    if (voiceWantedVisible) showVoices(false);
+    if(!commandFile.empty()) {
+        pendingCommandFiles.push_back(commandFile);
+        PostMessageW(mainWindow,WM_APP+2,0,0);
+    }
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (voiceKeyMessage(msg))

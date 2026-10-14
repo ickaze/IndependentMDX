@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #pragma once
 #include "pcm_pitch_shift.h"
 #include <array>
@@ -42,7 +45,25 @@ struct VoiceState {
     }
     std::array<std::atomic<int>, 8> requestedVoice{{-1, -1, -1, -1, -1, -1, -1, -1}};
     std::array<std::array<uint8_t, 27>, 256> definitions{};
-    std::array<bool, 256> defined{}, used{};
+    std::array<bool, 256> defined{}, used{}, initialDefined{};
+    std::array<std::array<uint8_t, 27>, 256> initialDefinitions{};
+    std::atomic<uint64_t> editRevision{0};
+    // Caller holds mutex. Initial definitions remain immutable within a session.
+    void beginVoiceSession(const std::array<std::array<uint8_t,27>,256> &voices,
+                           const std::array<bool,256> &present) {
+        definitions = initialDefinitions = voices;
+        defined = initialDefined = present;
+        used.fill(false);
+        ++catalogRevision;
+        ++editRevision;
+    }
+    bool editVoice(int id, const std::array<uint8_t,27> &voice) {
+        if(id < 0 || id >= 256 || !initialDefined[id]) return false;
+        definitions[id] = voice;
+        definitions[id][0] = uint8_t(id);
+        ++editRevision;
+        return true;
+    }
     uint64_t catalogRevision = 0;
     std::shared_ptr<Pdx> pdx;
     std::array<int, 8> pcmBank{}, pcmFormat{4, 4, 4, 4, 4, 4, 4, 4};
@@ -59,11 +80,19 @@ struct Timeline {
 };
 struct Options {
     bool analysisOnly = false;
+    // Offline register export: keep sequencer events, omit unused synthesis.
+    bool skipFmSynthesis = false;
+    bool skipPcmSynthesis = false;
     bool fastSeek = false;
+    std::function<void(double, double)> seekProgress;
     std::shared_ptr<std::atomic<int>> liveSpeed; // Interactive sequencer speed, 0..200 percent.
     int fmBackend = 0; // 0: Independent OPM, 1: X68Sound bridge.
     std::shared_ptr<VoiceState> voiceState;
     std::function<void(uint64_t, int, int)> registerOutput;
+    // Export traces retain logical write order before output-backend adaptation.
+    std::function<void(uint64_t, int, int)> registerLogOutput;
+    // native time, PCM channel 0..7, operation 0..4, argument, format.
+    std::function<void(uint64_t, int, int, uint32_t, int)> pcmLogOutput;
     bool externalFm = false;
     std::shared_ptr<Monitor> monitor;
     bool resampleOutput = true;       // 64-clock production output stage. False only for core diagnostics.
@@ -82,6 +111,7 @@ struct Options {
     std::shared_ptr<std::atomic<int>> liveKeyMode;
     std::shared_ptr<std::atomic<int>> liveKeyShift;
     std::function<void(const std::string &)> diagnostic;
+    std::shared_ptr<std::atomic<int>> liveLoops; // 0 unlimited; ignored after fade starts.
     int loops = 2;           // 0: unlimited traversals; finite tracks still end.
     double maxSeconds = 600; // 0: no time limit.
     double fadeSeconds = 3;
@@ -123,6 +153,8 @@ class Source {
     virtual bool service() { return false; }
     virtual bool seek(double, const std::function<bool()> & = {}) { return false; }
     virtual double duration() const { return 0; }
+    virtual double positionSeconds() const { return seconds(); }
+    virtual void syncRegisters() {}
 };
 class Player final : public Source {
   public:
@@ -131,10 +163,13 @@ class Player final : public Source {
     size_t render(int16_t *stereo, size_t frames) override;
     double seconds() const override;
     const std::vector<std::string> &warnings() const;
+    Timeline recordedTimeline() const;
     Timeline analyze(const std::function<bool()> &cancelled = {});
     bool seek(double seconds, const std::function<bool()> &cancelled = {}) override;
     double position(const Timeline &timeline) const;
-    void syncRegisters();
+    void syncRegisters() override;
+    bool silentEnd() const;
+    bool unlimited() const;
     // Optional deterministic trace for compatibility testing (native sample time).
     std::function<void(uint64_t, int, int)> registerTrace;
 
@@ -162,6 +197,7 @@ class SamplePlayer final : public Source {
 };
 std::shared_ptr<Pdx> locatePdx(const Song &song, const std::filesystem::path &mdx,
                                const std::filesystem::path &overridePath = {});
+std::shared_ptr<Pdx> locatePdxByName(const std::string &, const std::filesystem::path &, const std::filesystem::path & = {});
 void writeWav(Source &source, const std::filesystem::path &output, int rate,
               const std::function<bool()> &cancelled = {});
 } // namespace mdx

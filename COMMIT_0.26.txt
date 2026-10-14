@@ -1,0 +1,8 @@
+Release IndependentMDX 0.26: update OPM and add live instrument editing
+
+- Upgrade the runtime DLL, C header and API documentation to Independent OPM 0.14
+- Adopt the NOTE-MDX-Workbench instrument editor layout without a Save button
+- Snapshot all MDX instruments at playback start and apply edits to active voices
+- Retain edits across seek, pause/resume and output changes; reset individual voices
+- Show original knob directions and highlight changed values
+- Extend instrument-edit regression coverage and refresh release documentation

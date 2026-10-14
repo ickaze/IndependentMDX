@@ -1,0 +1,7 @@
+feat: add headless recursive MDX-to-VGZ batch export
+
+Add --vgz-folder with finite loop count, mirrored output paths and CSV errors.
+Preserve YM2151 writes and encode mixed PCM as stereo 12-bit direct PWM.
+Support the exported PWM profile in VGM playback, and stream gzip output
+through private temporary files without overwriting completed exports.
+Add export regressions and document limitations.

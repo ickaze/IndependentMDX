@@ -1,0 +1,7 @@
+IndependentMDX 0.30: improve sequencer fidelity and add portable PCM register logs
+
+Correct observed deterministic LFO and timing differences, including modulation after key-off, pending timer intervals, delayed key-on, voice programming and hardware-LFO bank handling.
+
+Add MRL 1.1 title/PDX metadata and eight-channel PCM control events, optional embedded PDX, and MRZ ZIP export. Preserve MRL 1.0 compatibility. Stream large ZIP members and MRL events to avoid loading whole archives or event arrays into memory.
+
+Update public format/export documentation and include the register comparison report. Native tests cover PCM8 playback, masks, seek, external/embedded PDX, MRZ and ZIP64. Windows binaries are cross-built; Windows runtime/device validation remains outstanding. Random LFO behavior is still approximate.

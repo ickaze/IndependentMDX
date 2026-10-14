@@ -1,0 +1,9 @@
+IndependentMDX 0.33: fix archived PDX lookup and add LZH browsing
+
+Resolve archive members using Windows filename casing rules before reading
+cached placeholders. Prefer same-folder PDX files, then accept a unique
+matching filename elsewhere in the containing archive.
+
+Add LZH/LHA virtual folders with statically linked Lhasa 0.6.0, on-demand
+stream extraction and CRC validation. Reuse bookmarks, title/text display
+and Explorer copy. Preserve existing settings and the OPM DLL.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #pragma once
 #include "midi_synth.h"
 namespace mdx {
@@ -88,8 +91,8 @@ class LiveSession final : public Source {
                 resetHardware();
             if (!pause) {
                 restoreVoices();
-                if (music)
-                    music->syncRegisters();
+                if (song)
+                    song->syncRegisters();
             }
             midi.setPolyphonic(wantsPoly());
             wasPaused = pause;
@@ -102,10 +105,10 @@ class LiveSession final : public Source {
                 resetHardware();
             song->seek(std::min(target, total.load()),
                        [&] { return (cancelled && cancelled()) || seekRequest.load() >= 0; });
-            if (music && !pause)
-                music->syncRegisters();
+            if (song && !pause)
+                song->syncRegisters();
             midi.restoreHardware();
-            current = music ? music->position(timeline) : song->seconds();
+            current = music ? music->position(timeline) : song->positionSeconds();
             flush = true;
         }
         return flush;
@@ -115,6 +118,15 @@ class LiveSession final : public Source {
         size_t count = frames;
         if (song && !songPaused())
             count = song->render(out, frames);
+        if (!count && music && music->unlimited() && music->silentEnd() &&
+            !(cancelled && cancelled())) {
+            if(resetHardware) resetHardware();
+            if(!music->seek(0,cancelled)) return 0;
+            music->syncRegisters();
+            midi.restoreHardware();
+            current=0;
+            count=song->render(out,frames);
+        }
         if (!count)
             return 0;
         midi.setPolyphonic(wantsPoly());
@@ -124,7 +136,7 @@ class LiveSession final : public Source {
         midi.mix(out, count, liveGain ? liveGain->load() : gain, liveFmGain ? liveFmGain->load() : fmGain,
                  livePcmGain ? livePcmGain->load() : pcmGain);
         if (song) {
-            current = music ? music->position(timeline) : song->seconds();
+            current = music ? music->position(timeline) : song->positionSeconds();
             if (!music)
                 total = song->duration();
         }

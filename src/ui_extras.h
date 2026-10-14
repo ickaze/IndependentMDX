@@ -1,11 +1,16 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 // Native browser, channel monitor and delayed preferences for IndependentMDX.
 const COLORREF textColor = RGB(178, 178, 255), panelColor = RGB(7, 8, 24), editColor = RGB(20, 22, 48);
 HBRUSH backgroundBrush = CreateSolidBrush(RGB(4, 5, 15)), panelBrush = CreateSolidBrush(panelColor),
        editBrush = CreateSolidBrush(editColor), accentBrush = CreateSolidBrush(RGB(92, 210, 255));
-HWND folderEdit, backButton, upButton, mdxFilter, pdxFilter, browserList, keyboards, licenseWindow,
+HWND folderEdit, backButton, upButton, mdxFilter, pdxFilter, vgmFilter, allFilter, browserList, keyboards, licenseWindow,
     licenseEdit, bookmarkBox, bookmarkAdd, bookmarkRemove;
 ULONG_PTR gdiToken;
 bool settingsReady = false, settingsDirty = false, layoutBusy = false, restoreMaximized = false;
+bool voiceWantedVisible = false;
+int voiceShowState = SW_SHOWNORMAL;
 int scrollX = 0, scrollY = 0, virtualWidth = 0, virtualHeight = 0;
 std::filesystem::path executableFolder() {
     wchar_t path[32768];
@@ -32,9 +37,12 @@ struct FileRow {
     DWORD attributes;
     int icon;
     std::wstring title;
+    std::filesystem::path document;
+    std::vector<std::filesystem::path> documents;
     bool directory() const { return attributes & FILE_ATTRIBUTE_DIRECTORY; }
 };
 std::vector<FileRow> files;
+#include "browser_support.h"
 void layout();
 void changeLanguage(bool);
 void saveSettings();
@@ -194,7 +202,9 @@ void rebuildColumns() {
     populate();
 }
 std::wstring readSongTitle(const std::filesystem::path &path) {
-    std::ifstream file(path, std::ios::binary);
+    try {
+    if(mdx::isVgm(path)) { try { return wide(mdx::readVgmTitle(path)); } catch(...) { return {}; } }
+    std::ifstream file(mdx::resolveArchivePath(path), std::ios::binary);
     std::string bytes;
     char c;
     while (bytes.size() < 8192 && file.get(c)) {
@@ -205,6 +215,7 @@ std::wstring readSongTitle(const std::filesystem::path &path) {
         }
     }
     return {};
+    } catch(...) {return {};}
 }
 void selectPath(const std::filesystem::path &path) {
     for (size_t i = 0; i < files.size(); ++i)
@@ -233,6 +244,9 @@ struct TitleJob {
     std::vector<std::pair<std::filesystem::path,std::wstring>> ready;
 };
 std::shared_ptr<TitleJob> titleJob;
+std::mutex titleWorkerMutex;
+std::condition_variable titleWorkersFinished;
+unsigned titleWorkers=0;
 void updateTitles() {
     if(!titleJob) return;
     std::vector<std::pair<std::filesystem::path,std::wstring>> ready;
@@ -247,7 +261,10 @@ void updateTitles() {
 void navigate(std::filesystem::path target, bool remember = true) {
     std::error_code ec;
     target = std::filesystem::absolute(target, ec).lexically_normal();
-    if (ec || !std::filesystem::is_directory(target, ec)) {
+    std::filesystem::path physical;
+    try { physical=mdx::resolveArchivePath(target); }
+    catch(const std::exception &e) { MessageBoxW(window,wide(e.what()).c_str(),L"ZIP",MB_OK|MB_ICONERROR);return; }
+    if (ec || !std::filesystem::is_directory(physical, ec)) {
         MessageBeep(MB_ICONWARNING);
         return;
     }
@@ -261,26 +278,48 @@ void navigate(std::filesystem::path target, bool remember = true) {
     SetWindowTextW(folderEdit, folder.c_str());
     ListView_DeleteAllItems(browserList);
     files.clear();
+    resetBrowserImages();
+    std::map<std::wstring,std::vector<std::filesystem::path>> documents;
+    for(const auto &entry:std::filesystem::directory_iterator(physical,ec)) {
+        if(entry.is_directory(ec))continue;
+        auto ext=entry.path().extension().wstring();
+        if(documentPriority(ext)>=int(documentExtensions.size()))continue;
+        auto stem=entry.path().stem().wstring();for(auto &c:stem)c=wchar_t(towlower(c));
+        documents[stem].push_back(folder/entry.path().filename());
+    }
+    for(auto &entry:documents)std::sort(entry.second.begin(),entry.second.end(),[](const auto &a,const auto &b){
+        int ap=documentPriority(a.extension().wstring()),bp=documentPriority(b.extension().wstring());
+        return ap!=bp ? ap<bp : a.native()<b.native();
+    });
     WIN32_FIND_DATAW data;
-    HANDLE search = FindFirstFileW((folder / L"*").c_str(), &data);
+    HANDLE search = FindFirstFileW((physical / L"*").c_str(), &data);
     if (search != INVALID_HANDLE_VALUE) {
         do {
             if (!wcscmp(data.cFileName, L".") || !wcscmp(data.cFileName, L".."))
                 continue;
             auto path = folder / data.cFileName;
             auto ext = path.extension().wstring();
-            bool dir = data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
-            if (!dir && !((_wcsicmp(ext.c_str(), L".mdx") == 0 &&
+            bool zip=mdx::isArchive(path);
+            bool dir = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || zip;
+            if(zip)data.dwFileAttributes|=FILE_ATTRIBUTE_DIRECTORY;
+            if (!dir && SendMessageW(allFilter,BM_GETCHECK,0,0)!=BST_CHECKED && !((_wcsicmp(ext.c_str(), L".mdx") == 0 &&
                            SendMessageW(mdxFilter, BM_GETCHECK, 0, 0) == BST_CHECKED) ||
                           (_wcsicmp(ext.c_str(), L".pdx") == 0 &&
-                           SendMessageW(pdxFilter, BM_GETCHECK, 0, 0) == BST_CHECKED)))
+                           SendMessageW(pdxFilter, BM_GETCHECK, 0, 0) == BST_CHECKED) ||
+                          (mdx::isVgm(path) && SendMessageW(vgmFilter,BM_GETCHECK,0,0)==BST_CHECKED)))
                 continue;
             SHFILEINFOW info{};
             auto images = SHGetFileInfoW(path.c_str(), data.dwFileAttributes, &info, sizeof(info),
-                                         SHGFI_USEFILEATTRIBUTES | SHGFI_SYSICONINDEX | SHGFI_SMALLICON |
+                                         SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | SHGFI_SMALLICON |
                                              SHGFI_TYPENAME);
-            if (images)
-                ListView_SetImageList(browserList, (HIMAGELIST)images, LVSIL_SMALL);
+            int icon=info.hIcon ? ImageList_AddIcon(browserImages,info.hIcon) : -1;
+            if(info.hIcon)DestroyIcon(info.hIcon);
+            std::filesystem::path document;
+            auto stem=path.stem().wstring();for(auto &c:stem)c=wchar_t(towlower(c));
+            std::vector<std::filesystem::path> sidecars;
+            if(!dir && !_wcsicmp(ext.c_str(),L".mdx") && documents.count(stem)) {
+                sidecars=documents[stem];document=sidecars.front();icon=documentIcons.at(documentType(document));
+            }
             files.push_back({path,
                              data.cFileName,
                              info.szTypeName,
@@ -288,18 +327,21 @@ void navigate(std::filesystem::path target, bool remember = true) {
                              data.ftCreationTime,
                              data.ftLastWriteTime,
                              data.ftLastAccessTime,
-                             (uint64_t(data.nFileSizeHigh) << 32) | data.nFileSizeLow,
+                             dir ? 0 : mdx::archiveFileSize(physical / data.cFileName),
                              data.dwFileAttributes,
-                             info.iIcon,
-                             {}});
+                             icon,
+                             zip ? path.filename().wstring() : std::wstring{},
+                             document,sidecars});
 
         } while (FindNextFileW(search, &data));
         FindClose(search);
     }
     populate();
     std::vector<std::filesystem::path> pending;
-    for(const auto &f:files) if(!f.directory() && _wcsicmp(f.ext.c_str(),L".mdx")==0) pending.push_back(f.path);
+    for(const auto &f:files) if(!f.directory() && (_wcsicmp(f.ext.c_str(),L".mdx")==0 || mdx::isVgm(f.path))) pending.push_back(f.path);
+    {std::lock_guard<std::mutex> lock(titleWorkerMutex);++titleWorkers;}
     std::thread([job=titleJob,pending=std::move(pending)] {
+        struct Done {~Done(){std::lock_guard<std::mutex> lock(titleWorkerMutex);--titleWorkers;titleWorkersFinished.notify_all();}} done;
         for(const auto &path:pending) {
             if(job->cancelled) break;
             auto title=readSongTitle(path);
@@ -329,7 +371,8 @@ void activateFile() {
     auto f = files[i];
     if (f.directory())
         navigate(f.path);
-    else {
+    else if (textFile(f.path)) showDocument(f.path);
+    else if (_wcsicmp(f.ext.c_str(),L".mdx")==0 || _wcsicmp(f.ext.c_str(),L".pdx")==0 || mdx::isVgm(f.path)) {
         load(f.path);
         if (input == f.path)
             start(false);
@@ -340,7 +383,7 @@ std::filesystem::path nextFile() {
     if (current == files.end())
         return {};
     for (++current; current != files.end(); ++current)
-        if (!current->directory())
+        if (!current->directory() && (_wcsicmp(current->ext.c_str(),L".mdx")==0 || mdx::isVgm(current->path)))
             return current->path;
     return {};
 }
@@ -388,6 +431,11 @@ LRESULT CALLBACK listSubclass(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWOR
         return DLGC_WANTMESSAGE;
     if (m == WM_KEYDOWN && w == VK_RETURN) {
         activateFile();
+        return 0;
+    }
+    if (m == WM_KEYDOWN && w == VK_SPACE) {
+        int i=ListView_GetNextItem(browserList,-1,LVNI_SELECTED);
+        if(i>=0 && size_t(i)<files.size())showDocument(files[i].document);
         return 0;
     }
     if (m == WM_KEYDOWN && w == VK_BACK) {
@@ -441,6 +489,20 @@ LRESULT CALLBACK addressSubclass(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, D
 }
 LRESULT browserNotify(NMHDR *n) {
     if (n->hwndFrom == browserList) {
+        if(n->code==NM_RCLICK) {
+            auto click=reinterpret_cast<NMITEMACTIVATE*>(n);
+            int i=click->iItem;
+            if(i>=0 && size_t(i)<files.size()) {
+                POINT point=click->ptAction;ClientToScreen(browserList,&point);
+                documentMenu(files[i],point);
+            }
+            return 0;
+        }
+        if (n->code == LVN_BEGINDRAG) {
+            int i=reinterpret_cast<NMLISTVIEW*>(n)->iItem;
+            if(i>=0 && size_t(i)<files.size())copyDrag(files[i]);
+            return 0;
+        }
         if (n->code == LVN_COLUMNCLICK) {
             int c = ((NMLISTVIEW *)n)->iSubItem;
             if (c >= 0 && size_t(c) < columns.size()) {
@@ -499,6 +561,8 @@ bool extrasCommand(WPARAM w) {
         return true;
     case 103:
     case 104:
+    case 116:
+    case 155:
         if (HIWORD(w) == BN_CLICKED)
             navigate(folder, false);
         return true;
@@ -706,6 +770,7 @@ void extrasLanguage() {
     SetWindowTextW(bookmarkRemove, tr(L"削除", L"Remove"));
     SetWindowTextW(backButton, tr(L"戻る", L"Back"));
     SetWindowTextW(upButton, tr(L"上へ", L"Up"));
+    SetWindowTextW(allFilter,tr(L"すべて",L"All files"));
     if (licenseWindow)
         SetWindowTextW(licenseWindow, tr(L"ライセンス — IndependentMDX", L"Licenses — IndependentMDX"));
     captureWidths();
@@ -790,17 +855,19 @@ LRESULT CALLBACK splitterProcedure(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR,
 void createExtras() {
     Gdiplus::GdiplusStartupInput startup;
     Gdiplus::GdiplusStartup(&gdiToken, &startup, nullptr);
-    bookmarkBox = control(L"COMBOBOX", L"", 0, 0, 1, 1, 107, WS_TABSTOP | CBS_DROPDOWNLIST);
+    bookmarkBox = control(L"COMBOBOX", L"", 0, 0, 1, 1, 107, WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST);
     bookmarkAdd = control(L"BUTTON", L"", 0, 0, 1, 1, 108, WS_TABSTOP | BS_OWNERDRAW);
     bookmarkRemove = control(L"BUTTON", L"", 0, 0, 1, 1, 109, WS_TABSTOP | BS_OWNERDRAW);
     backButton = control(L"BUTTON", L"Back", 0, 0, 1, 1, 100, WS_TABSTOP | BS_OWNERDRAW);
     upButton = control(L"BUTTON", L"Up", 0, 0, 1, 1, 101, WS_TABSTOP | BS_OWNERDRAW);
     folderEdit = control(L"EDIT", L"", 0, 0, 1, 1, 102, WS_TABSTOP | ES_AUTOHSCROLL);
     mdxFilter = control(L"BUTTON", L"MDX", 0, 0, 1, 1, 103, WS_TABSTOP | BS_AUTOCHECKBOX);
+    vgmFilter = control(L"BUTTON", L"VGM / MRL", 0, 0, 1, 1, 116, WS_TABSTOP | BS_AUTOCHECKBOX);
+    allFilter = control(L"BUTTON", L"All files", 0,0,1,1,155,WS_TABSTOP|BS_AUTOCHECKBOX);
     pdxFilter = control(L"BUTTON", L"PDX", 0, 0, 1, 1, 104, WS_TABSTOP | BS_AUTOCHECKBOX);
     browserList = control(WC_LISTVIEWW, L"", 0, 0, 1, 1, 105,
                           WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS);
-    for (HWND h : {backButton, upButton, folderEdit, mdxFilter, pdxFilter, browserList, bookmarkBox,
+    for (HWND h : {backButton, upButton, folderEdit, mdxFilter, pdxFilter, vgmFilter, allFilter, browserList, bookmarkBox,
                    bookmarkAdd, bookmarkRemove}) {
         SendMessageW(h, WM_SETFONT, (WPARAM)uiFont, TRUE);
         SetWindowTheme(h, L"", L"");
@@ -855,6 +922,8 @@ void applyOutputGains() {
     hardware.setGain(v.master / 100.0, v.fm / 100.0);
 }
 void readSettings() {
+    voiceWantedVisible = setting(L"VoiceVisible", 0) != 0;
+    voiceShowState = int(setting(L"VoiceShow", SW_SHOWNORMAL));
     splitPermille = std::clamp(int(setting(L"SplitPermille", 620)), 1, 999);
     for (int i = 0; i < 3; ++i) {
         auto key = L"Output" + std::to_wstring(i);
@@ -921,7 +990,9 @@ void readSettings() {
     SendMessageW(measuredButton, BM_SETCHECK, liveMeasuredOutputTiming->load() ? BST_CHECKED : BST_UNCHECKED,
                  0);
     SendMessageW(dacButton, BM_SETCHECK, liveDacRightDelay->load() ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(allFilter,BM_SETCHECK,setting(L"ShowAll",0)?BST_CHECKED:BST_UNCHECKED,0);
     SendMessageW(mdxFilter, BM_SETCHECK, setting(L"ShowMdx", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(vgmFilter, BM_SETCHECK, setting(L"ShowVgm",1)?BST_CHECKED:BST_UNCHECKED,0);
     SendMessageW(pdxFilter, BM_SETCHECK, setting(L"ShowPdx", 1) ? BST_CHECKED : BST_UNCHECKED, 0);
     sortColumn = int(setting(L"SortColumn", 0));
     if (sortColumn > 9 || sortColumn < 0)
@@ -949,7 +1020,9 @@ void readSettings() {
     rebuildColumns();
     auto dir = settingText(L"Folder");
     std::error_code ec;
-    if (dir.empty() || !std::filesystem::is_directory(dir, ec)) {
+    bool validFolder=false;
+    try { validFolder=!dir.empty() && std::filesystem::is_directory(mdx::resolveArchivePath(dir),ec); } catch(...) {}
+    if (!validFolder) {
         wchar_t current[32768];
         GetCurrentDirectoryW(32768, current);
         dir = current;
@@ -962,6 +1035,23 @@ void saveSettings() {
     std::map<std::wstring, std::wstring> values;
     auto number = [&](const wchar_t *n, DWORD v) { values[n] = std::to_wstring(v); };
     auto text = [&](const wchar_t *n, const std::wstring &v) { values[n] = v; };
+    number(L"VoiceVisible", voiceWantedVisible);
+    for (auto name : {L"VoiceX", L"VoiceY", L"VoiceWidth", L"VoiceHeight", L"VoiceShow", L"VoiceFlags"}) {
+        auto previous = settingText(name);
+        if (!previous.empty()) text(name, previous);
+    }
+    if (voiceWindow) {
+        WINDOWPLACEMENT voicePlacement{sizeof(voicePlacement)};
+        if (GetWindowPlacement(voiceWindow, &voicePlacement)) {
+            auto bounds = voicePlacement.rcNormalPosition;
+            number(L"VoiceX", bounds.left);
+            number(L"VoiceY", bounds.top);
+            number(L"VoiceWidth", bounds.right - bounds.left);
+            number(L"VoiceHeight", bounds.bottom - bounds.top);
+            number(L"VoiceShow", voiceShowState);
+            number(L"VoiceFlags", voicePlacement.flags & WPF_RESTORETOMAXIMIZED);
+        }
+    }
     number(L"SplitPermille", splitPermille);
     captureOutputGains();
     for (int i = 0; i < 3; ++i) {
@@ -983,7 +1073,8 @@ void saveSettings() {
     text(L"LastPlayedFile", lastPlayedFile.wstring());
     text(L"LastPlayedPdx", lastPlayedBank.wstring());
     number(L"OutputBackend", SendMessageW(outputBox, CB_GETCURSEL, 0, 0));
-    int midiIndex = int(SendMessageW(midiBox, CB_GETCURSEL, 0, 0)) - 1;
+    int midiSelection = int(SendMessageW(midiBox, CB_GETCURSEL, 0, 0));
+    int midiIndex = midiSelection > 0 ? int(SendMessageW(midiBox, CB_GETITEMDATA, midiSelection, 0)) : -1;
     MIDIINCAPSW midiCaps{};
     if (midiIndex >= 0)
         midiInGetDevCapsW(UINT(midiIndex), &midiCaps, sizeof(midiCaps));
@@ -1013,7 +1104,9 @@ void saveSettings() {
     number(L"PcmMask", livePcmMuteMask->load());
     number(L"Measured", liveMeasuredOutputTiming->load());
     number(L"Dac", liveDacRightDelay->load());
+    number(L"ShowAll",SendMessageW(allFilter,BM_GETCHECK,0,0)==BST_CHECKED);
     number(L"ShowMdx", SendMessageW(mdxFilter, BM_GETCHECK, 0, 0) == BST_CHECKED);
+    number(L"ShowVgm",SendMessageW(vgmFilter,BM_GETCHECK,0,0)==BST_CHECKED);
     number(L"ShowPdx", SendMessageW(pdxFilter, BM_GETCHECK, 0, 0) == BST_CHECKED);
     number(L"SortColumn", sortColumn);
     number(L"Ascending", ascending);

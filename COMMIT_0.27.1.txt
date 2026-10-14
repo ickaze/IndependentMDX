@@ -1,0 +1,6 @@
+perf: accelerate VGZ export and add PCM exclusion and GD3 tags
+
+Skip unused FM synthesis and use table-based gzip CRC32.
+Add --no-pcm to omit sample-bank loading, decoding and PCM output.
+Record MDX titles in both GD3 title fields with converter and comment tags.
+Test FM event/timestamp preservation, PCM exclusion and Japanese metadata.

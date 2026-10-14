@@ -1,0 +1,6 @@
+Fix signed MA attenuation and MD-dependent phase handling
+
+Correct negative saw/square start attenuation, preserve MA phase across MD0
+retriggers, and use unmodulated TL during MD waits. Verify 48/58 signed
+captures and retain explicit random-wave limitations. Add 68 original
+random depth probes and reproducible comparison tools.

@@ -1,0 +1,81 @@
+file,condition
+MP_W0_P8_D128.MDX,MP wave=0 period=8 depth=128; tied notes
+MP_W1_P8_D128.MDX,MP wave=1 period=8 depth=128; tied notes
+MP_W2_P8_D128.MDX,MP wave=2 period=8 depth=128; tied notes
+MP_W3_P8_D1.MDX,MP wave=3 period=8 depth=1; tied notes
+MP_W4_P8_D1.MDX,MP wave=4 period=8 depth=1; tied notes
+MP_W5_P8_D1.MDX,MP wave=5 period=8 depth=1; tied notes
+MP_W6_P8_D1.MDX,MP wave=6 period=8 depth=1; tied notes
+MP_W7_P8_D1.MDX,MP wave=7 period=8 depth=1; tied notes
+MP_R_P1_D1.MDX,MP random; period=1; depth=1; one channel
+MP_R_P1_D8.MDX,MP random; period=1; depth=8; one channel
+MP_R_P1_D-8.MDX,MP random; period=1; depth=-8; one channel
+MP_R_P2_D1.MDX,MP random; period=2; depth=1; one channel
+MP_R_P2_D8.MDX,MP random; period=2; depth=8; one channel
+MP_R_P2_D-8.MDX,MP random; period=2; depth=-8; one channel
+MP_R_P3_D1.MDX,MP random; period=3; depth=1; one channel
+MP_R_P3_D8.MDX,MP random; period=3; depth=8; one channel
+MP_R_P3_D-8.MDX,MP random; period=3; depth=-8; one channel
+MP_R_P24_D1.MDX,MP random; period=24; depth=1; one channel
+MP_R_P24_D8.MDX,MP random; period=24; depth=8; one channel
+MP_R_P24_D-8.MDX,MP random; period=24; depth=-8; one channel
+MP_W0_retrigger.MDX,"MP wave=0, retrigger, MD0"
+MP_W1_retrigger.MDX,"MP wave=1, retrigger, MD0"
+MP_W2_retrigger.MDX,"MP wave=2, retrigger, MD0"
+MP_W3_retrigger.MDX,"MP wave=3, retrigger, MD0"
+MP_W0_rest.MDX,"MP wave=0, rest, MD0"
+MP_W1_rest.MDX,"MP wave=1, rest, MD0"
+MP_W2_rest.MDX,"MP wave=2, rest, MD0"
+MP_W3_rest.MDX,"MP wave=3, rest, MD0"
+MP_W0_switch.MDX,"MP wave=0, switch, MD0"
+MP_W1_switch.MDX,"MP wave=1, switch, MD0"
+MP_W2_switch.MDX,"MP wave=2, switch, MD0"
+MP_W3_switch.MDX,"MP wave=3, switch, MD0"
+MP_R_MD1.MDX,MP random retrigger MD1
+MP_R_MD8.MDX,MP random retrigger MD8
+MP_R_MD24.MDX,MP random retrigger MD24
+MP_R_2CH.MDX,MP identical simultaneous random LFOs on 2 FM channels; shared RNG diagnostic
+MP_R_8CH.MDX,MP identical simultaneous random LFOs on 8 FM channels; shared RNG diagnostic
+MP_R_STAGGER.MDX,MP random channel B starts 16 ticks later
+MA_W0_P8_D128.MDX,MA wave=0 period=8 depth=128; tied notes
+MA_W1_P8_D128.MDX,MA wave=1 period=8 depth=128; tied notes
+MA_W2_P8_D128.MDX,MA wave=2 period=8 depth=128; tied notes
+MA_W3_P8_D1.MDX,MA wave=3 period=8 depth=1; tied notes
+MA_W4_P8_D1.MDX,MA wave=4 period=8 depth=1; tied notes
+MA_W5_P8_D1.MDX,MA wave=5 period=8 depth=1; tied notes
+MA_W6_P8_D1.MDX,MA wave=6 period=8 depth=1; tied notes
+MA_W7_P8_D1.MDX,MA wave=7 period=8 depth=1; tied notes
+MA_R_P1_D1.MDX,MA random; period=1; depth=1; one channel
+MA_R_P1_D8.MDX,MA random; period=1; depth=8; one channel
+MA_R_P1_D-8.MDX,MA random; period=1; depth=-8; one channel
+MA_R_P2_D1.MDX,MA random; period=2; depth=1; one channel
+MA_R_P2_D8.MDX,MA random; period=2; depth=8; one channel
+MA_R_P2_D-8.MDX,MA random; period=2; depth=-8; one channel
+MA_R_P3_D1.MDX,MA random; period=3; depth=1; one channel
+MA_R_P3_D8.MDX,MA random; period=3; depth=8; one channel
+MA_R_P3_D-8.MDX,MA random; period=3; depth=-8; one channel
+MA_R_P24_D1.MDX,MA random; period=24; depth=1; one channel
+MA_R_P24_D8.MDX,MA random; period=24; depth=8; one channel
+MA_R_P24_D-8.MDX,MA random; period=24; depth=-8; one channel
+MA_W0_retrigger.MDX,"MA wave=0, retrigger, MD0"
+MA_W1_retrigger.MDX,"MA wave=1, retrigger, MD0"
+MA_W2_retrigger.MDX,"MA wave=2, retrigger, MD0"
+MA_W3_retrigger.MDX,"MA wave=3, retrigger, MD0"
+MA_W0_rest.MDX,"MA wave=0, rest, MD0"
+MA_W1_rest.MDX,"MA wave=1, rest, MD0"
+MA_W2_rest.MDX,"MA wave=2, rest, MD0"
+MA_W3_rest.MDX,"MA wave=3, rest, MD0"
+MA_W0_switch.MDX,"MA wave=0, switch, MD0"
+MA_W1_switch.MDX,"MA wave=1, switch, MD0"
+MA_W2_switch.MDX,"MA wave=2, switch, MD0"
+MA_W3_switch.MDX,"MA wave=3, switch, MD0"
+MA_R_MD1.MDX,MA random retrigger MD1
+MA_R_MD8.MDX,MA random retrigger MD8
+MA_R_MD24.MDX,MA random retrigger MD24
+MA_R_2CH.MDX,MA identical simultaneous random LFOs on 2 FM channels; shared RNG diagnostic
+MA_R_8CH.MDX,MA identical simultaneous random LFOs on 8 FM channels; shared RNG diagnostic
+MA_R_STAGGER.MDX,MA random channel B starts 16 ticks later
+MH_W0.MDX,"Hardware LFO wave=0; MH settings, OFF, ON. Compare register sequence; random audio is chip-specific."
+MH_W1.MDX,"Hardware LFO wave=1; MH settings, OFF, ON. Compare register sequence; random audio is chip-specific."
+MH_W2.MDX,"Hardware LFO wave=2; MH settings, OFF, ON. Compare register sequence; random audio is chip-specific."
+MH_W3.MDX,"Hardware LFO wave=3; MH settings, OFF, ON. Compare register sequence; random audio is chip-specific."

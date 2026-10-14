@@ -1,0 +1,5 @@
+Correct random LFO arithmetic while retaining explicit RNG limitations
+
+Use signed-byte MP depth and fixed-point MA extraction, correct update
+boundaries, and draw from a shared song sequence. Keep the RNG explicitly
+approximate and document capture-based validation separately from playback.

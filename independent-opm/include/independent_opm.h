@@ -61,6 +61,13 @@ IOPM_API int32_t IOPM_CALL iopm_render_s16(iopm_handle handle, int16_t* output, 
    All event arguments validated before state/output changes. */
 IOPM_API int32_t IOPM_CALL iopm_render_events_f32(iopm_handle handle, float* output, uint32_t frames,
                                                const iopm_event* events, uint32_t event_count);
+/* Pre-pan channel outputs, with existing 1/8 normalization and output timing.
+   output: 2*frames floats, channels: 16*frames floats, both required for frames>0.
+   Layout: channels[16*frame + 2*channel + side], channel=0..7, side=L0/R1.
+   Same output rate/filter as mix; unclipped. Buffers must not overlap.
+   Pan bits affect only output, not channels. No second advancement. */
+IOPM_API int32_t IOPM_CALL iopm_render_channels_f32(iopm_handle handle, float* output, float* channels, uint32_t frames);
+IOPM_API int32_t IOPM_CALL iopm_render_events_channels_f32(iopm_handle handle, float* output, float* channels, uint32_t frames, const iopm_event* events, uint32_t event_count);
 #ifdef __cplusplus
 }
 #endif

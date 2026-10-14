@@ -1,7 +1,0 @@
-Current project package: 0BSD; see LICENSE.txt.
-
-Copyright (C) 2026 by I.C.KaZe
-
-No third-party emulator implementation is included in this replacement package.
-Historical references and removed scope: docs/PROVENANCE.md.
-External tools/dependencies are not bundled and retain their respective licenses.

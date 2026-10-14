@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #pragma once
 // Shared keyboard, pitch left-to-right; elapsed notes scroll vertically upwards.
 const COLORREF trackColors[16] = {

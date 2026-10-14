@@ -1,0 +1,9 @@
+IndependentMDX 0.32: refine LFO register behavior and sidecar document browsing
+
+Correct MP square startup/retrigger timing and bipolar triangle turning points
+from black-box register captures. Preserve the PMD/AMD bank bit in MH operands.
+Keep unresolved random-LFO behavior documented instead of substituting a guessed RNG.
+
+Show seek percentage inline with Position. Add HED/PDL text support,
+DOC/TXT/HED/MUS/PDL sidecar precedence, extension icons and right-click selection.
+Include comparison scripts, CSV/HTML results and 17 original random-state probes.

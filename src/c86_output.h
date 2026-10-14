@@ -1,3 +1,8 @@
+// Original IndependentMDX integration: 0BSD; see LICENSE.txt.
+// Copyright (c) 2026 IndependentMDX contributors
+// C86CTL ABI declarations retain their separate BSD license and copyrights;
+// see the declaration notice below and third_party/C86CTL_LICENSE.txt.
+
 #pragma once
 #include "c86_gain.h"
 #include <windows.h>

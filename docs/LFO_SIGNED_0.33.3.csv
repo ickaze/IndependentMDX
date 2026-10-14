@@ -1,0 +1,71 @@
+case,status,different_ticks,checks,first_tick,reference_repeats_equal,source_crc32
+MA0_P008_D+00000_tie_MD0,match,0,544,,True,5AB34DCB
+MA0_P008_D+00093_tie_MD0,match,0,544,,True,3D6DC3DA
+MA0_P008_D+00256_tie_MD0,match,0,544,,True,A3B2FFA2
+MA0_P008_D-00093_tie_MD0,match,0,544,,True,A7D5EA91
+MA0_P008_D-00256_tie_MD0,match,0,544,,True,A81B6CF5
+MA1_P008_D+00000_tie_MD0,match,0,544,,True,E63968C1
+MA1_P008_D+00093_tie_MD0,match,0,544,,True,81E7E6D0
+MA1_P008_D+00256_tie_MD0,match,0,544,,True,1F38DAA8
+MA1_P008_D-00093_tie_MD0,match,0,544,,True,1B5FCF9B
+MA1_P008_D-00256_tie_MD0,match,0,544,,True,149149FF
+MA2_P008_D+00000_tie_MD0,match,0,544,,True,F8D6019E
+MA2_P008_D+00093_tie_MD0,match,0,544,,True,9F088F8F
+MA2_P008_D+00256_tie_MD0,match,0,544,,True,01D7B3F7
+MA2_P008_D-00093_tie_MD0,match,0,544,,True,05B0A6C4
+MA2_P008_D-00256_tie_MD0,match,0,544,,True,0A7E20A0
+MA2_P192_D+00093_retrigger_MD0,match,0,544,,True,6E284A1E
+MA2_P192_D+00093_retrigger_MD4,match,0,544,,True,896D0D39
+MA2_P192_D+00093_tie_MD0,match,0,544,,True,4C2227F6
+MA2_P192_D-00093_retrigger_MD0,match,0,544,,True,919A5ADC
+MA2_P192_D-00093_retrigger_MD4,match,0,544,,True,76DF1DFB
+MA2_P192_D-00093_tie_MD0,match,0,544,,True,D69A0EBD
+MA3_P008_D+00000_tie_MD0,match,0,544,,True,445C2494
+MA3_P008_D+00093_tie_MD0,different,512,544,0,True,2382AA85
+MA3_P008_D+00256_tie_MD0,different,512,544,0,True,BD5D96FD
+MA3_P008_D-00093_tie_MD0,different,512,544,0,True,B93A83CE
+MA3_P008_D-00256_tie_MD0,different,512,544,0,True,B6F405AA
+MA4_P008_D+00000_tie_MD0,missing capture,,,,,
+MA4_P008_D+00001_tie_MD0,missing capture,,,,,
+MA4_P008_D-00001_tie_MD0,missing capture,,,,,
+MA5_P008_D+00000_tie_MD0,missing capture,,,,,
+MA5_P008_D+00001_tie_MD0,missing capture,,,,,
+MA5_P008_D-00001_tie_MD0,missing capture,,,,,
+MA6_P008_D+00000_tie_MD0,missing capture,,,,,
+MA6_P008_D+00001_tie_MD0,missing capture,,,,,
+MA6_P008_D-00001_tie_MD0,missing capture,,,,,
+MA7_P008_D+00000_tie_MD0,missing capture,,,,,
+MA7_P008_D+00001_tie_MD0,missing capture,,,,,
+MA7_P008_D-00001_tie_MD0,missing capture,,,,,
+MP0_P008_D+00000_tie_MD0,match,0,544,,True,C73FC6B7
+MP0_P008_D+00093_tie_MD0,match,0,544,,True,A0E148A6
+MP0_P008_D+00256_tie_MD0,match,0,544,,True,3E3E74DE
+MP0_P008_D-00093_tie_MD0,match,0,544,,True,3A5961ED
+MP0_P008_D-00256_tie_MD0,match,0,544,,True,3597E789
+MP1_P008_D+00000_tie_MD0,match,0,544,,True,7BB5E3BD
+MP1_P008_D+00093_tie_MD0,match,0,544,,True,1C6B6DAC
+MP1_P008_D+00256_tie_MD0,match,0,544,,True,82B451D4
+MP1_P008_D-00093_tie_MD0,match,0,544,,True,86D344E7
+MP1_P008_D-00256_tie_MD0,match,0,544,,True,891DC283
+MP2_P008_D+00000_tie_MD0,match,0,544,,True,655A8AE2
+MP2_P008_D+00093_tie_MD0,match,0,544,,True,028404F3
+MP2_P008_D+00256_tie_MD0,match,0,544,,True,9C5B388B
+MP2_P008_D-00093_tie_MD0,match,0,544,,True,983C2DB8
+MP2_P008_D-00256_tie_MD0,match,0,544,,True,97F2ABDC
+MP3_P008_D+00000_tie_MD0,match,0,544,,True,D9D0AFE8
+MP3_P008_D+00093_tie_MD0,different,512,544,0,True,BE0E21F9
+MP3_P008_D+00256_tie_MD0,different,464,544,0,True,20D11D81
+MP3_P008_D-00093_tie_MD0,different,512,544,0,True,24B608B2
+MP3_P008_D-00256_tie_MD0,different,480,544,0,True,2B788ED6
+MP4_P008_D+00000_tie_MD0,match,0,544,,True,5884585C
+MP4_P008_D+00001_tie_MD0,match,0,544,,True,C5CA521C
+MP4_P008_D-00001_tie_MD0,match,0,544,,True,5F727B57
+MP5_P008_D+00000_tie_MD0,match,0,544,,True,E40E7D56
+MP5_P008_D+00001_tie_MD0,match,0,544,,True,79407716
+MP5_P008_D-00001_tie_MD0,match,0,544,,True,E3F85E5D
+MP6_P008_D+00000_tie_MD0,match,0,544,,True,FAE11409
+MP6_P008_D+00001_tie_MD0,match,0,544,,True,67AF1E49
+MP6_P008_D-00001_tie_MD0,match,0,544,,True,FD173702
+MP7_P008_D+00000_tie_MD0,match,0,544,,True,466B3103
+MP7_P008_D+00001_tie_MD0,different,464,544,0,True,DB253B43
+MP7_P008_D-00001_tie_MD0,different,480,544,0,True,419D1208

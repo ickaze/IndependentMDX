@@ -1,3 +1,5 @@
+> Historical release note. These details describe the named earlier version; see README.md and docs/VALIDATION.md for the current distribution.
+
 # 実測出力タイミングと波形表示 / Timing and waveform display
 
 ## スイッチの適用範囲
@@ -29,7 +31,7 @@ C86CTLから録音波形を読み戻しているわけではない。実機のFM
 - MDXのタイミングOFF/ON/OFFが固定OFF/ONの参照レンダーに一致する試験を実施。新コアに合わせ、試験音色もC1のキーオンビットとパラメータ位置を正しく対応させた。
 - MIDI LiveSessionの同一状態比較で、ON同士は一致、片方をOFFにすると差分発生、ONへ戻して出力フィルターが落ち着いた後は一致することを確認。
 - C86CTL相当のexternalFmモードで、@11の表示波形が生成され、表示用計算が実際の音声バッファへ混入しないことを確認。
-- 添付DLLはx64で、必要なC ABIエクスポートを確認。DLL本体の実行、Windowsのドラッグ描画、実機C86CTLの聴感確認は未実施。Linux試験は同梱の更新版C APIソースを実行している。
+- 当該版のDLLはx64で、必要なC ABIエクスポートを確認。DLL本体の実行、Windowsのドラッグ描画、実機C86CTLの聴感確認は未実施。Linux試験は同梱の更新版C APIソースを実行している。
 
 ## English
 

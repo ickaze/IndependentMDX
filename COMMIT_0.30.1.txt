@@ -1,0 +1,5 @@
+IndependentMDX 0.30.1: fix partial-operator silence in Independent OPM output
+
+Remove the obsolete KON bit 4/5 swap from the shared DLL backend. The DLL already maps key-on bits to register slots, so the extra swap activated the wrong operators and silenced partial-operator voices.
+
+Add isolated-operator tests for immediate and timestamped writes. Keep existing MRL/MRZ files, settings and the unmodified OPM 0.14 DLL.

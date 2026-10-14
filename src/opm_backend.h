@@ -1,10 +1,13 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #pragma once
-#include "../monitor_core/ym2151.hpp"
 #include "independent_opm.h"
 #include <array>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -21,6 +24,7 @@ struct OpmApi {
 #endif
 #define OPM_PROC(name) decltype(&iopm_##name) name = nullptr
     OPM_PROC(abi_version);
+    OPM_PROC(version);
     OPM_PROC(create);
     OPM_PROC(destroy);
     OPM_PROC(state_size);
@@ -28,6 +32,9 @@ struct OpmApi {
     OPM_PROC(load_state);
     OPM_PROC(write_register);
     OPM_PROC(render_f32);
+    OPM_PROC(render_channels_f32);
+    OPM_PROC(render_events_channels_f32);
+    OPM_PROC(reset);
     OPM_PROC(set_measured_output_timing);
 #undef OPM_PROC
     OpmApi() {
@@ -50,6 +57,7 @@ struct OpmApi {
 #define OPM_LOAD(name) name = &iopm_##name
 #endif
         OPM_LOAD(abi_version);
+        OPM_LOAD(version);
         OPM_LOAD(create);
         OPM_LOAD(destroy);
         OPM_LOAD(state_size);
@@ -57,6 +65,9 @@ struct OpmApi {
         OPM_LOAD(load_state);
         OPM_LOAD(write_register);
         OPM_LOAD(render_f32);
+        OPM_LOAD(render_channels_f32);
+        OPM_LOAD(render_events_channels_f32);
+        OPM_LOAD(reset);
         OPM_LOAD(set_measured_output_timing);
 #undef OPM_LOAD
         if (abi_version() != IOPM_ABI_VERSION) {
@@ -89,96 +100,96 @@ class OpmBackend {
 #endif
     iopm_handle handle = nullptr;
     std::array<float, 2> samples{};
+    std::array<float, 16> channels{};
     std::array<unsigned, 8> keys{};
-    bool monitorEnabled = true, monitorTiming = false;
-    std::array<uint8_t,256> monitorRegisters{};
-    uint8_t monitorAmd=0, monitorPmd=0;
-    std::unique_ptr<independent_opm_monitor::Ym2151> monitor;
-
+    std::array<uint8_t,256> registers{};
+    uint8_t amd=0, pmd=0;
+    bool monitorEnabled=true, measuredTiming=false, audible=false;
+    uint32_t clockHz=4000000, clockRemainder=0, eventOffset=0;
+    bool timedFrame=false;
+    std::vector<iopm_event> timedEvents;
+    void writeDll(unsigned a,unsigned v) {
+        // Pass YM2151 register bits unchanged; the DLL maps KON to operator slots.
+        if(timedFrame) timedEvents.push_back({eventOffset,a,v});
+        else OpmApi::check(api->write_register(handle,a,v));
+    }
   public:
-    struct Frame {
-        double left, right;
-    };
-    struct State {
-        bool key;
-    };
-    explicit OpmBackend(bool capture = false, bool sound = true, int backend = 0) {
-        if (capture)
-            monitor = std::make_unique<independent_opm_monitor::Ym2151>(4000000);
-        if (sound) {
+    struct Frame { double left, right; };
+    struct State { bool key; };
+    explicit OpmBackend(bool capture=false, bool sound=true, int backend=0, uint32_t clock=4000000) {
+        clockHz=clock;
+        audible=sound && backend==0;
 #ifdef _WIN32
-            if (backend == 1) {
-                x68 = std::make_unique<X68Bridge>();
-                return;
-            }
+        if(sound && backend==1) x68=std::make_unique<X68Bridge>();
 #endif
-            api = &OpmApi::get();
-            OpmApi::check(api->create(4000000, 62500, &handle));
+        if(capture || audible) {
+            api=&OpmApi::get();
+            OpmApi::check(api->create(clock,62500,&handle));
         }
+        monitorEnabled=capture;
     }
-    ~OpmBackend() {
-        if (handle)
-            api->destroy(handle);
-    }
-    OpmBackend(const OpmBackend &) = delete;
-    OpmBackend &operator=(const OpmBackend &) = delete;
-    void write_register(uint8_t a, uint8_t v) {
-        if(monitor) {
-            monitorRegisters[a]=v;
-            if(a==0x19) { if(v&128) monitorPmd=v; else monitorAmd=v; }
-        }
+    ~OpmBackend() { if(handle) api->destroy(handle); }
+    OpmBackend(const OpmBackend &)=delete;
+    OpmBackend &operator=(const OpmBackend &)=delete;
+    void write_register(uint8_t a,uint8_t v) {
+        registers[a]=v;
+        if(a==8) keys[v&7]=(v>>3)&15;
+        if(a==0x19) { if(v&128) pmd=v; else amd=v; }
 #ifdef _WIN32
-        if (x68)
-            x68->write(a, v);
+        if(x68) x68->write(a,v);
 #endif
-        if (a == 8)
-            keys[v & 7] = (v >> 3) & 15;
-        if (handle)
-            OpmApi::check(api->write_register(handle, a, v));
-        if (monitor)
-            monitor->write_register(a, v);
+        if(handle) writeDll(a,v);
     }
     void set_measured_output_timing(bool on) {
-        monitorTiming=on;
-        if (handle)
-            OpmApi::check(api->set_measured_output_timing(handle, on));
-        if (monitor)
-            monitor->set_measured_output_timing(on);
+        measuredTiming=on;
+        if(handle) OpmApi::check(api->set_measured_output_timing(handle,on));
     }
     void set_monitor_enabled(bool enabled) {
-        if(enabled && !monitorEnabled && monitor) {
-            // Restart only the display model from current registers/held keys.
-            // Do not show an envelope frozen at the time the view was disabled.
-            monitor->reset();
-            monitor->set_measured_output_timing(monitorTiming);
+        if(enabled && !monitorEnabled && !audible && handle) {
+            OpmApi::check(api->reset(handle));
+            OpmApi::check(api->set_measured_output_timing(handle,measuredTiming));
             for(unsigned a=0;a<256;++a) if(a!=8 && a!=0x19)
-                monitor->write_register(uint8_t(a),monitorRegisters[a]);
-            monitor->write_register(0x19,monitorAmd&127);
-            monitor->write_register(0x19,monitorPmd|128);
-            for(unsigned ch=0;ch<8;++ch) monitor->write_register(8,uint8_t(ch|(keys[ch]<<3)));
+                writeDll(a,registers[a]);
+            writeDll(0x19,amd&127);
+            writeDll(0x19,pmd|128);
+            for(unsigned ch=0;ch<8;++ch)
+                writeDll(8,ch|(keys[ch]<<3));
         }
         monitorEnabled=enabled;
+        if(!enabled) channels.fill(0);
     }
-    void advance(unsigned clocks) {
+    uint32_t begin_timed_frame() {
+        timedEvents.clear(); timedFrame=true; eventOffset=0;
+        return (uint64_t(clockRemainder)+clockHz)/62500;
+    }
+    void set_event_offset(uint32_t offset) { eventOffset=offset; }
+    void advance(unsigned) {
+        if(handle && (audible || monitorEnabled)) {
+            std::array<float,2> mix{};
+            if(timedFrame && !timedEvents.empty())
+                OpmApi::check(api->render_events_channels_f32(handle,mix.data(),channels.data(),1,
+                    timedEvents.data(),static_cast<uint32_t>(timedEvents.size())));
+            else if(monitorEnabled)
+                OpmApi::check(api->render_channels_f32(handle,mix.data(),channels.data(),1));
+            else OpmApi::check(api->render_f32(handle,mix.data(),1));
+            if(audible) samples=mix;
+        }
 #ifdef _WIN32
-        if (x68)
-            samples = x68->advance();
+        if(x68) samples=x68->advance();
 #endif
-        if (handle)
-            OpmApi::check(api->render_f32(handle, samples.data(), 1));
-        if (monitor && monitorEnabled)
-            monitor->advance(clocks);
+        clockRemainder=(uint64_t(clockRemainder)+clockHz)%62500;
+        timedFrame=false; timedEvents.clear();
     }
-    Frame last_sample() const { return {samples[0], samples[1]}; }
+    Frame last_sample() const { return {samples[0],samples[1]}; }
     Frame channel_sample(unsigned ch) const {
-        if (!monitor || !monitorEnabled)
-            return {};
-        auto s = monitor->channel_sample(ch);
-        return {s.left, s.right};
+        if(ch>=8 || !monitorEnabled) return {};
+        // The DLL returns pre-pan signals; retain the player's pan/mute display.
+        return {(registers[0x20+ch]&64) ? channels[ch*2] : 0,
+                (registers[0x20+ch]&128) ? channels[ch*2+1] : 0};
     }
-    State inspect(unsigned ch, unsigned op) const {
-        constexpr unsigned bit[] = {0, 2, 1, 3};
-        return {bool(keys[ch] & (1u << bit[op]))};
+    State inspect(unsigned ch,unsigned op) const {
+        constexpr unsigned bit[]={0,2,1,3};
+        return {bool(keys[ch] & (1u<<bit[op]))};
     }
 };
 } // namespace mdx

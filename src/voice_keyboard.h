@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #pragma once
 // Viewer audition uses the same queue and Mono/Poly allocator as external MIDI.
 HWND voiceKeyboard = nullptr;
@@ -45,6 +48,12 @@ bool voiceKeyMessage(const MSG &msg) {
     if (msg.message != WM_KEYDOWN && msg.message != WM_KEYUP)
         return false;
     bool down = msg.message == WM_KEYDOWN;
+    // Text entry owns its keys; release any audition note started before focus moved.
+    if (msg.hwnd == voiceEdit) {
+        if (!down) for (int i=0;i<13;++i)
+            if(msg.wParam == WPARAM(auditionMap[i])) releaseAudition(auditionKeys[i]);
+        return false;
+    }
     if (msg.wParam == VK_PRIOR || msg.wParam == VK_NEXT) {
         if (down && !(msg.lParam & (LPARAM(1) << 30))) {
             releaseVoiceKeys();

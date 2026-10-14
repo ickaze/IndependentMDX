@@ -1,3 +1,5 @@
+> Historical release note. These details describe the named earlier version; see README.md and docs/VALIDATION.md for the current distribution.
+
 # C86CTLとポルタメント — 0.17
 
 ## C86CTLの調査結果

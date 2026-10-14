@@ -1,6 +1,8 @@
+> Historical release note. These details describe the named earlier version; see README.md and docs/VALIDATION.md for the current distribution.
+
 > 0.23: MH/MP/MAスイッチはbit7で形式を、bit0でOFF/ONを判定します。MP/MA波形設定はbit0～2、MHのPMS/AMSは0x73のビットを使用します。0x80/0x81は標準的な表記であり、未使用ビット付きの同値表現も受け付けます。
 
-> 0.21: MP矩形波は格納変移D ×（WAVE+4なら256）÷256をデチューン単位として使用します。矩形波固有の追加256倍は撤去しました。WAVE1/D=256とWAVE5/D=1はいずれも中心から±1/64半音です。負数は極性を反転します。MAの計算は今回変更していません。
+> 0.21: MP矩形波は格納変移D ×（WAVE+4なら256）÷256をデチューン単位として使用します。矩形波固有の追加256倍は撤去しました。WAVE1/D=256とWAVE5/D=1はいずれも中心から±1/64半音です。負数は極性を反転します。0.21ではMAの計算は変更していません。
 
 > 0.20: MP/MAはキーオン中だけ位相とMD遅延カウントを進めます。
 
@@ -10,7 +12,7 @@
 
 # LFO interpretation in IndependentMDX 0.8 / LFOの扱い
 
-このアプリはMMLをコンパイルせず、MDX内のEC/EB命令の16bit値を読みます。Pは格納された周期ワード、Dは符号付き変移ワードです。MMLのMP2,6,48という文字列の6/48をそのままP/Dとは断定できません。ご提示資料の「設定値×4/×2」と脚注の「1周期/半周期」は、MMLからの変換と格納値を区別して読む必要があります。
+このアプリはMMLをコンパイルせず、MDX内のEC/EB命令の16bit値を読みます。Pは格納された周期ワード、Dは符号付き変移ワードです。MMLのMP2,6,48という文字列の6/48をそのままP/Dとは断定できません。当時参照した出典未確認の命令形式抜粋（下記「資料の来歴」参照）にある「設定値×4/×2」と脚注の「1周期/半周期」は、MMLからの変換と格納値を区別して読む必要があります。
 
 0.7ではWAVE2の全周期は2Pクロックでしたが、変移は0〜D*P/256と上側だけでした。0.8は全周期2Pを維持し、初期値0から正方向へ進み、+D*P/512と-D*P/512の間を往復します。P=6,D=48のMDXなら全周期12クロック、最大振幅±0.5625デチューン単位です。MMLコンパイラーが周期ワード12を出す場合は24クロックです。1デチューン単位は1/64半音です。奇数周期は半クロックの頂点を離散サンプルで評価します。
 
@@ -22,4 +24,8 @@ WAVE0は格納Pクロックごとに0へ戻る鋸波、WAVE1はPクロックご�
 
 Tests cover stored WAVE2 P=6,D=256 at every tick, ON/OFF register traces, tied versus continuous notes with MD delay, and MHOF across the delay threshold. These establish this implementation's behavior; no supplied failing MDX or original-driver audio was available for byte/recording comparison. Original MXDRV overflow and random-wave behavior are not claimed to be bit-exact.
 
-Reference: user-supplied data-format excerpt (EC/EB/EA/E9). No external MXDRV implementation was copied.
+## 資料の来歴 / Excerpt provenance
+
+0.8の検討では、利用者から会話中に提供された命令形式の抜粋（EC/EB/EA/E9）を参照しました。原資料の名称・著者・URLは記録されておらず、第三者文書の引用か利用者自身のメモかは確認できません。この抜粋を出典確認済みの仕様書として扱うことはできません。本書は当時のIndependentMDXの実装解釈を記録した履歴資料です。現行版の動作・検証範囲はREADME.mdおよびdocs/VALIDATION.mdを参照してください。
+
+The 0.8 discussion used a command-format excerpt (EC/EB/EA/E9) supplied in conversation. Its original title, author and URL were not recorded; whether it came from a third-party document or the contributor's own notes is unknown. It is not an independently verified specification. This document records the implementation interpretation at that time. No external MXDRV implementation was copied.

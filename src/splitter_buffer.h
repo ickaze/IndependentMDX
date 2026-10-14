@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #pragma once
 // A drag-only sibling overlay presents one completed bitmap. Native child
 // windows retain their state/geometry and print into it, without style changes.

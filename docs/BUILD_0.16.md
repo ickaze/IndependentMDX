@@ -1,6 +1,8 @@
+> Historical release note. These details describe the named earlier version; see README.md and docs/VALIDATION.md for the current distribution.
+
 # 0.16 dependency build subset
 
-The supplied `bin/independent_opm.dll` is the user-provided latest x64 build, unchanged.
+The supplied `bin/independent_opm.dll` is the x64 build distributed with 0.16, unchanged.
 SHA-256: `d86593cad3f848f66e9ba5882140db11a822122a852ff7205cd1f6fdb9cb185a`.
 
 The dependency directory contains the three public headers, core/C API sources, envelope/state-codec internal headers, DLL export definition, licenses and a minimal distribution CMake file. Source/license files are byte-identical to the supplied updated 0.11b archive. Upstream evidence, tests, examples and CLI are omitted. Application regression tests are retained under the root tests directory.

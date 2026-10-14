@@ -1,0 +1,4 @@
+Fix negative MA triangle attenuation and add signed LFO probes
+
+Keep initial attenuation during MD delay, verify carrier TL against reference
+capture, and add full-cycle/retrigger regressions and 70 original MDX probes.

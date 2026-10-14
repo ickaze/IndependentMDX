@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 // Main-window helpers. Included inside the GUI namespace after item/layout.
 void closeMidi() {
     if (midiInput) {
@@ -5,6 +8,7 @@ void closeMidi() {
         midiInReset(midiInput);
         midiInClose(midiInput);
         midiInput = nullptr;
+        activeMidiDevice = -1;
     }
     for (int ch = 0; ch < 16; ++ch)
         midiQueue->push(0xb0 | ch | (120 << 8));
@@ -133,9 +137,12 @@ std::array<bool, 256> displayedUsed{};
 int shownAlgorithm = 0, shownFeedback = 0;
 std::wstring shownMml, shownRegisters;
 HFONT voiceFont = nullptr;
+#include "voice_controls.h"
+#include "voice_editor_ui.h"
 void refreshVoiceWindow() {
     if (!voiceWindow || !IsWindowVisible(voiceWindow))
         return;
+    bool catalogChanged = false;
     {
         uint64_t revision;
         std::array<bool,256> used,defined;
@@ -144,8 +151,10 @@ void refreshVoiceWindow() {
             revision=retainedVoices->catalogRevision; used=retainedVoices->used; defined=retainedVoices->defined;
         }
         if (displayedCatalog != revision || displayedUsed != used) {
-            if (displayedCatalog != revision)
+            if (displayedCatalog != revision) {
                 selectedVoice = -1;
+                catalogChanged = true;
+            }
             displayedCatalog = revision;
             displayedUsed = used;
             rebuildingVoiceList = true;
@@ -172,20 +181,25 @@ void refreshVoiceWindow() {
         }
     }
     // A focused edit freezes the text: selecting/copying never races a refresh.
-    if (GetFocus() == voiceEdit || GetFocus() == registerEdit)
+    if (!catalogChanged && (GetFocus() == voiceEdit || GetFocus() == registerEdit))
         return;
+    if (!catalogChanged && GetCapture() &&
+        std::find(parameterKnobs.begin(),parameterKnobs.end(),GetCapture())!=parameterKnobs.end()) return;
     int ch = std::max(0, int(SendMessageW(voiceChannel, CB_GETCURSEL, 0, 0)));
     std::array<uint8_t, 256> regs;
     mdx::Voice voice;
     int id = ch;
+    const auto previousBaseline=baselineVoice;
+    const bool previousBaselineValid=baselineVoiceValid;
+    baselineVoiceValid=false;
     {
         std::lock_guard<std::mutex> lock(retainedVoices->mutex);
         regs = retainedVoices->registers;
         voice = mdx::registerVoice(regs, ch, retainedVoices->voices[ch][2]);
         if (retainedVoices->ids[ch] >= 0)
             id = retainedVoices->ids[ch];
-        if (selectedVoice >= 0 && retainedVoices->defined[selectedVoice]) {
-            id = selectedVoice;
+        if (selectedVoice >= 0) id = selectedVoice;
+        if (id>=0 && id<256 && retainedVoices->defined[id]) {
             voice = retainedVoices->definitions[id];
             regs.fill(0);
             regs[0x20 + ch] = voice[1];
@@ -194,11 +208,33 @@ void refreshVoiceWindow() {
                     regs[0x40 + g * 32 + op * 8 + ch] = voice[3 + g * 4 + op];
         }
     }
+    {
+        std::lock_guard<std::mutex> lock(retainedVoices->mutex);
+        baselineVoiceValid=id>=0 && id<256 && retainedVoices->initialDefined[id];
+        if(baselineVoiceValid) baselineVoice=retainedVoices->initialDefinitions[id];
+    }
+    voice[0]=uint8_t(id);
+    baselineParameters=mdx::voiceParameterValues(baselineVoice);
+    syncVoiceParameters(voice);
+    for(auto knob:parameterKnobs) {
+        if(bool(IsWindowEnabled(knob))!=baselineVoiceValid) EnableWindow(knob,baselineVoiceValid);
+        if(previousBaseline!=baselineVoice || previousBaselineValid!=baselineVoiceValid)
+            InvalidateRect(knob,nullptr,FALSE);
+    }
+    if(bool(GetWindowLongPtrW(voiceEdit,GWL_STYLE)&ES_READONLY)==baselineVoiceValid)
+        SendMessageW(voiceEdit,EM_SETREADONLY,!baselineVoiceValid,0);
+    voiceDirty=baselineVoiceValid && voice!=baselineVoice;
+    EnableWindow(voiceReset,voiceDirty);
     auto mml = wide(mdx::voiceMml(voice, id)), reg = wide(mdx::voiceRegisters(regs, ch));
     if (mml != shownMml) {
         shownMml = mml;
+        updatingVoiceEdit=true;
         SetWindowTextW(voiceEdit, mml.c_str());
+        updatingVoiceEdit=false;
+        colorVoiceParameters();
     }
+    if (previousBaseline != baselineVoice || previousBaselineValid != baselineVoiceValid)
+        colorVoiceParameters();
     if (reg != shownRegisters) {
         shownRegisters = reg;
         SetWindowTextW(registerEdit, reg.c_str());
@@ -237,7 +273,7 @@ void applyVoiceNumber(int id) {
 LRESULT CALLBACK voiceProcedure(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_GETMINMAXINFO) {
         auto info = reinterpret_cast<MINMAXINFO *>(lp);
-        info->ptMinTrackSize = {scale(800), scale(760)};
+        info->ptMinTrackSize = voiceMinimumSize();
         return 0;
     }
     if (msg == WM_CREATE) {
@@ -255,8 +291,29 @@ LRESULT CALLBACK voiceProcedure(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         SendMessageW(voiceChannel, CB_SETCURSEL, 0, 0);
         voiceEdit =
-            child(L"EDIT", L"",
-                  ES_MULTILINE | ES_READONLY | ES_NOHIDESEL | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP, 2);
+            child(MSFTEDIT_CLASS, L"",
+                  ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP, 2);
+        SendMessageW(voiceEdit, EM_SETBKGNDCOLOR, 0, editColor);
+        SendMessageW(voiceEdit, EM_SETEVENTMASK, 0, ENM_CHANGE);
+        SendMessageW(voiceEdit, EM_SETTARGETDEVICE, 0, 1); // Disable wrapping.
+    const wchar_t *headers[] = {L"AR", L"DR", L"SR",  L"RR",  L"SL", L"OL",
+                                L"KS", L"ML", L"DT1", L"DT2", L"AME"};
+    for (int col = 0; col < 11; ++col)
+      parameterHeaders[col] = child(L"STATIC", headers[col], 0, 200 + col);
+    const wchar_t *globalHeaders[] = {L"CON", L"FL", L"OP"};
+    for (int col = 0; col < 3; ++col)
+      globalParameterHeaders[col] = child(L"STATIC", globalHeaders[col], 0, 230 + col);
+    for (int row = 0; row < 4; ++row)
+    {
+      auto name = L"OP" + std::to_wstring(row + 1);
+      parameterRows[row] = child(L"STATIC", name.c_str(), 0, 220 + row);
+    }
+    for (int n = 0; n < 47; ++n)
+    {
+      parameterKnobs[n] = child(L"STATIC", L"", SS_NOTIFY | WS_CLIPSIBLINGS | WS_TABSTOP, 300 + n);
+      SetWindowSubclass(parameterKnobs[n], parameterProcedure, 3, n);
+    }
+        voiceReset = child(L"BUTTON",tr(L"リセット",L"Reset"),WS_TABSTOP,8);
         registerEdit =
             child(L"EDIT", L"",
                   ES_MULTILINE | ES_READONLY | ES_NOHIDESEL | WS_VSCROLL | WS_HSCROLL | WS_TABSTOP, 3);
@@ -277,19 +334,65 @@ LRESULT CALLBACK voiceProcedure(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FIXED_PITCH, L"Consolas");
         for (HWND h : {voiceChannel, voiceEdit, registerEdit, voiceList, voiceListLabel})
             SendMessageW(h, WM_SETFONT, WPARAM(voiceFont), TRUE);
+    parameterFont = CreateFontW(-scale(9), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                                0, 0, 0, FIXED_PITCH, L"Consolas");
+    limitFont = CreateFontW(-scale(7), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0,
+                            0, 0, 0, L"Segoe UI");
+    for (auto h : parameterHeaders)
+      SendMessageW(h, WM_SETFONT, WPARAM(voiceFont), TRUE);
+    for (auto h : parameterRows)
+      SendMessageW(h, WM_SETFONT, WPARAM(voiceFont), TRUE);
+    for (auto h : globalParameterHeaders)
+      SendMessageW(h, WM_SETFONT, WPARAM(voiceFont), TRUE);
         return 0;
     }
+    if (msg == WM_SIZE && voiceWantedVisible) {
+        voiceShowState = wp == SIZE_MINIMIZED ? SW_SHOWMINIMIZED :
+                         wp == SIZE_MAXIMIZED ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+    }
+    if (msg == WM_MOVE || msg == WM_SIZE) settingsChanged();
+    if (msg == WM_SIZE && wp == SIZE_MINIMIZED) return 0;
     if (msg == WM_SIZE) {
-        int w = LOWORD(lp), h = HIWORD(lp), split = std::max(scale(260), w * 2 / 3);
-        MoveWindow(voiceChannel, scale(12), scale(12), scale(160), scale(220), TRUE);
-        MoveWindow(voiceEdit, scale(12), scale(52), std::max(scale(40), split - scale(20)),
-                   std::max(scale(40), h - scale(495)), TRUE);
-        MoveWindow(registerEdit, split, scale(52), std::max(scale(40), w - split - scale(12)),
-                   std::max(scale(40), h - scale(307)), TRUE);
+    int w = LOWORD(lp), h = HIWORD(lp), split = std::max(scale(260), w * 2 / 3);
+    MoveWindow(voiceChannel, scale(12), scale(12), scale(160), scale(220), TRUE);
+    MoveWindow(voiceReset, scale(190), scale(12), scale(100), scale(28), TRUE);
+    MoveWindow(voiceEdit, scale(12), scale(52), std::max(scale(40), split - scale(20)),
+               std::max(scale(40), h - scale(495)), TRUE);
+    MoveWindow(registerEdit, split, scale(52), std::max(scale(40), w - split - scale(12)),
+               std::max(scale(40), h - scale(495)), TRUE);
+    int gridTop = h - scale(435), cell = (split - scale(60)) / 11;
+    for (int col = 0; col < 11; ++col)
+      MoveWindow(parameterHeaders[col], scale(52) + col * cell, gridTop, cell, scale(18), TRUE);
+    for (int row = 0; row < 4; ++row)
+      MoveWindow(parameterRows[row], scale(12), gridTop + scale(24 + row * 30),
+                 scale(38), scale(16), TRUE);
+    for (int col = 0; col < 3; ++col)
+      MoveWindow(globalParameterHeaders[col], scale(52) + col * cell,
+                 gridTop + scale(140), cell, scale(16), TRUE);
+    for (int n = 0; n < 47; ++n)
+    {
+      int row = n < 44 ? n / 11 : 4, col = n < 44 ? n % 11 : n - 44;
+      int x = scale(52) + col * cell;
+      int width = std::min(cell, scale(40)),
+          y = gridTop + scale(n < 44 ? 20 + row * 30 : 158);
+      int left = x + (cell - width) / 2;
+      MoveWindow(parameterKnobs[n], left, y, width, scale(28), TRUE);
+    }
         MoveWindow(voiceKeyboard, scale(12), h - scale(248), w - scale(24), scale(96), TRUE);
         MoveWindow(voiceListLabel, scale(12), h - scale(148), w - scale(24), scale(24), TRUE);
         MoveWindow(voiceList, scale(12), h - scale(120), w - scale(24), scale(108), TRUE);
         InvalidateRect(hwnd, nullptr, TRUE);
+        return 0;
+    }
+    if(msg==WM_COMMAND && LOWORD(wp)==2 && HIWORD(wp)==EN_CHANGE && !updatingVoiceEdit) {
+        previewEditedVoice(false);
+        return 0;
+    }
+    if(msg==WM_COMMAND && LOWORD(wp)==8 && baselineVoiceValid) {
+        updatingVoiceEdit=true;
+        SetWindowTextW(voiceEdit,wide(mdx::voiceMml(baselineVoice,baselineVoice[0])).c_str());
+        updatingVoiceEdit=false;
+        previewEditedVoice(false);
         return 0;
     }
     if (msg == WM_COMMAND && LOWORD(wp) == 1 && HIWORD(wp) == CBN_SELCHANGE) {
@@ -300,6 +403,24 @@ LRESULT CALLBACK voiceProcedure(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msg == WM_NOTIFY && reinterpret_cast<NMHDR *>(lp)->hwndFrom == voiceList) {
+        auto draw = reinterpret_cast<NMLVCUSTOMDRAW *>(lp);
+        if (draw->nmcd.hdr.code == NM_CUSTOMDRAW) {
+            if (draw->nmcd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+            if (draw->nmcd.dwDrawStage == CDDS_ITEMPREPAINT) {
+                int id = int(draw->nmcd.lItemlParam);
+                std::lock_guard<std::mutex> lock(retainedVoices->mutex);
+                bool changed = id >= 0 && id < 256 && retainedVoices->initialDefined[id] &&
+                    retainedVoices->definitions[id] != retainedVoices->initialDefinitions[id];
+                draw->clrText = changed ? RGB(255, 95, 95) : textColor;
+                if (changed && (draw->nmcd.uItemState & CDIS_SELECTED)) {
+                    // Keep changed text red even when the theme supplies selection colors.
+                    draw->nmcd.uItemState &= ~CDIS_SELECTED;
+                    draw->clrTextBk = RGB(50, 55, 88);
+                } else draw->clrTextBk = editColor;
+                return CDRF_NEWFONT;
+            }
+            return CDRF_DODEFAULT;
+        }
         if (rebuildingVoiceList)
             return 0;
         auto n = reinterpret_cast<NMHDR *>(lp);
@@ -341,18 +462,18 @@ LRESULT CALLBACK voiceProcedure(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         HDC dc = BeginPaint(hwnd, &ps);
         RECT client;
         GetClientRect(hwnd, &client);
-        RECT area{0, std::max(0L, client.bottom - scale(435)),
-                  std::max(LONG(scale(260)), client.right * 2 / 3) - scale(8), client.bottom - scale(255)};
+        RECT area{client.right*2/3, std::max(0L,client.bottom-scale(435)),
+                  client.right-scale(8),client.bottom-scale(255)};
         FillRect(dc, &area, panelBrush);
         auto font = SelectObject(dc, voiceFont);
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, textColor);
         std::wstring title =
             L"ALG " + std::to_wstring(shownAlgorithm) + L"   FB " + std::to_wstring(shownFeedback);
-        TextOutW(dc, scale(16), area.top + scale(8), title.c_str(), int(title.size()));
+        TextOutW(dc, area.left+scale(16), area.top + scale(8), title.c_str(), int(title.size()));
         auto topology = mdx::algorithmLayout(shownAlgorithm);
-        int bw = scale(48), bh = scale(23), margin = scale(48), right = int(area.right) - scale(24);
-        int columnWidth = std::max(bw + scale(24), (right - margin) / (topology.maxLevel + 2));
+        int bw = scale(28), bh = scale(23), margin = int(area.left)+scale(20), right = int(area.right) - scale(24);
+        int columnWidth = std::max(bw + scale(6), (right - margin) / (topology.maxLevel + 2));
         POINT point[4];
         for (int op = 0; op < 4; ++op) {
             int usable = std::max(scale(80), int(area.bottom - area.top) - scale(40));
@@ -414,12 +535,17 @@ LRESULT CALLBACK voiceProcedure(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         releaseVoiceKeys();
     if (msg == WM_CLOSE) {
         releaseVoiceKeys();
+        voiceWantedVisible = false;
+        settingsChanged();
         ShowWindow(hwnd, SW_HIDE);
         return 0;
     }
     if (msg == WM_DESTROY) {
         releaseVoiceKeys();
         voiceKeyboard = nullptr;
+        DeleteObject(parameterFont);
+        DeleteObject(limitFont);
+        parameterKnobs.fill(nullptr);
         DeleteObject(voiceFont);
         voiceFont = nullptr;
         voiceWindow = nullptr;
@@ -427,7 +553,14 @@ LRESULT CALLBACK voiceProcedure(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
-void showVoices() {
+void showVoices(bool toggle) {
+    if (voiceWindow && toggle && voiceWantedVisible) {
+        SendMessageW(voiceWindow, WM_CLOSE, 0, 0);
+        return;
+    }
+    bool created = !voiceWindow;
+    static HMODULE richEditModule = LoadLibraryW(L"Msftedit.dll");
+    if (!richEditModule) return;
     if (!voiceWindow) {
         WNDCLASSW cls{};
         cls.lpfnWndProc = voiceProcedure;
@@ -436,11 +569,24 @@ void showVoices() {
         cls.hbrBackground = panelBrush;
         cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         RegisterClassW(&cls);
+        auto minimum = voiceMinimumSize();
         voiceWindow = CreateWindowW(cls.lpszClassName, L"", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                                    scale(1000), scale(860), window, nullptr, cls.hInstance, nullptr);
+                                    minimum.x, minimum.y, window, nullptr, cls.hInstance, nullptr);
+        if (!voiceWindow) return;
+        restoreVoicePlacement();
     }
     updateAdvancedLanguage();
-    ShowWindow(voiceWindow, SW_SHOW);
-    SetForegroundWindow(voiceWindow);
+    voiceWantedVisible = true;
+    int show = SW_SHOW;
+    if (created) {
+        int saved = int(setting(L"VoiceShow", SW_SHOWNORMAL));
+        if (saved == SW_SHOWMAXIMIZED) show = SW_SHOWMAXIMIZED;
+        else if (saved == SW_SHOWMINIMIZED || saved == SW_SHOWMINNOACTIVE) show = SW_SHOWMINNOACTIVE;
+        else show = SW_SHOWNORMAL;
+    }
+    if (created) voiceShowState = show;
+    ShowWindow(voiceWindow, show);
+    settingsChanged();
+    if (show != SW_SHOWMINNOACTIVE) SetForegroundWindow(voiceWindow);
     refreshVoiceWindow();
 }

@@ -1,0 +1,4 @@
+IndependentMDX 0.33.1: enable scrolling in the bookmark dropdown
+
+Add WS_VSCROLL to the bookmark combobox so long lists remain selectable.
+Preserve existing bookmark entries, ordering and all saved settings.

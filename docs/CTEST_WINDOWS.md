@@ -1,3 +1,5 @@
+> Historical release note. These details describe the named earlier version; see README.md and docs/VALIDATION.md for the current distribution.
+
 # Windows CTest correction (0.24)
 
 The reported core-tests exit code 0xC00000FD is STATUS_STACK_OVERFLOW.

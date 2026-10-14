@@ -1,0 +1,5 @@
+Fix MRL and VGZ export aborting on software LFO warning
+
+Allow the LFO approximation diagnostic without changing sequencer output.
+Keep data errors fatal and prevent incomplete output publication.
+Add regression coverage for MP/MA exports and subsequent missing-voice errors.

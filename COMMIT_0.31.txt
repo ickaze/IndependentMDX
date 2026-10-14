@@ -1,0 +1,5 @@
+IndependentMDX 0.31: add loop-aware register logs and browser document tools
+
+Add MRL 1.2 loop metadata, seek progress and bounded WAV export. Preserve all requested capture loops and fall back to external PDX references for missing banks.
+
+Add DOC/TXT viewing, all-file browsing, ZIP title labels and copy drags to Explorer. Include 80 original LFO diagnostic inputs and evidence-based comparison notes.

@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #include "player.h"
+#include "archive.h"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -30,7 +34,7 @@ static uint32_t be(const Bytes &b, size_t pos, size_t length) {
     return value;
 }
 Bytes readFile(const std::filesystem::path &path) {
-    std::ifstream in(path, std::ios::binary | std::ios::ate);
+    std::ifstream in(resolveArchivePath(path), std::ios::binary | std::ios::ate);
     if (!in)
         throw std::runtime_error("Cannot open: " + path.u8string());
     auto length = in.tellg();
@@ -148,7 +152,7 @@ std::vector<int16_t> Pdx::decode(size_t index, int format) const {
         throw std::runtime_error("PCM format must be F0..F6");
     auto e = entries[index];
     std::vector<int16_t> result;
-    result.reserve(static_cast<size_t>(e.length) * 2);
+    result.reserve(format < 5 ? static_cast<size_t>(e.length) * 2 : format == 5 ? e.length / 2 : e.length);
     if (format == 5) {
         if (e.length % 2)
             throw std::runtime_error("P16 sample has odd byte length");
@@ -182,6 +186,10 @@ std::vector<int16_t> Pdx::decode(size_t index, int format) const {
 }
 std::shared_ptr<Pdx> locatePdx(const Song &song, const std::filesystem::path &mdxPath,
                                const std::filesystem::path &overridePath) {
+    return locatePdxByName(song.pdxName, mdxPath, overridePath);
+}
+std::shared_ptr<Pdx> locatePdxByName(const std::string &pdxName, const std::filesystem::path &mdxPath,
+                                  const std::filesystem::path &overridePath) {
     auto load = [](const std::filesystem::path &path) {
         auto bank = std::make_shared<Pdx>(readFile(path));
         bank->sourcePath = path;
@@ -189,17 +197,15 @@ std::shared_ptr<Pdx> locatePdx(const Song &song, const std::filesystem::path &md
     };
     if (!overridePath.empty())
         return load(overridePath);
-    if (song.pdxName.empty())
+    if (pdxName.empty())
         return {};
-    auto name = sjisPath(song.pdxName).filename();
+    auto name = sjisPath(pdxName).filename();
     if (!name.has_extension())
         name += ".PDX";
-    auto directory = mdxPath.parent_path();
+    auto directory = resolveArchivePath(mdxPath).parent_path();
     if (directory.empty())
         directory = ".";
     auto candidate = directory / name;
-    if (std::filesystem::exists(candidate))
-        return load(candidate);
     auto lower = [](std::string s) {
         for (char &c : s)
             if (c >= 'A' && c <= 'Z')
@@ -241,6 +247,8 @@ std::shared_ptr<Pdx> locatePdx(const Song &song, const std::filesystem::path &md
         return load(numbered.front());
     if (numbered.size() > 1)
         throw std::runtime_error("Multiple numbered PDX copies found; specify --pdx / Choose PDX");
+    auto archived = archiveSibling(mdxPath, name);
+    if (!archived.empty()) return load(archived);
 
     throw std::runtime_error("Required PDX not found: " + name.u8string() +
                              ". Place it beside the MDX or specify --pdx.");

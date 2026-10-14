@@ -4,6 +4,7 @@
 #include "live_session.h"
 #include "midi_synth.h"
 #include "player.h"
+#include "lfo_random.h"
 #include "stereo_output.h"
 #include "voice_text.h"
 #include "x68_render.h"
@@ -441,7 +442,7 @@ int main() {
         {
             // Byte-level relative command direction, independently specified.
             mdx::Player p(
-                mdx::Song(oneTrack({253, 0, 251, 8, 0, 250, 0, 249, 0, 251, 148, 0, 250, 0, 249, 0, 241, 0})),
+                mdx::Song(oneTrack({253, 0, 251, 8, 182, 0, 250, 0, 249, 0, 251, 148, 0, 250, 0, 249, 0, 241, 0})),
                 {}, opts);
             std::vector<int> tl;
             p.registerTrace = [&](uint64_t, int r, int v) {
@@ -571,7 +572,7 @@ int main() {
         {
             // Exercise the actual player at 48 kHz, including live OFF/ON/OFF.
             auto bytes = oneTrack({253, 0, 251, 128, 247, 182, 127, 241, 0});
-            // ALG7 with C1 carrier (KEY ON bit 1, parameter slot 2): L-only delay.
+            // ALG7 with C1 carrier (MDX operator mask bit 1, parameter slot 2): L-only delay.
             bytes[bytes.size() - 27 + 2] = 2;
             bytes[bytes.size() - 27 + 7] = 127;
             bytes[bytes.size() - 27 + 9] = 0;
@@ -1088,7 +1089,7 @@ int main() {
                     fraction[t / 896] = v;
             };
             render(p);
-            const int displacement[] = {0, 1, 2, 3, 2, 1, 0, -1, -2, -3, -2, -1, 0};
+            const int displacement[] = {1, 2, 3, 4, 3, 2, 1, 0, -1, -2, -1, 0, 1};
             for (int i = 0; i < 13; ++i)
                 require(fraction[i] == (5 + displacement[i]) * 4, "WAVE2 period/centering/delta wrong");
         }
@@ -1507,11 +1508,11 @@ int main() {
         }
         ++passed;
         {
-            // ALG5 FB7: M1/C1 register slots active (raw KON mask 5).
+            // ALG5 FB7: M1/C1 register slots active (raw KON mask 3).
             mdx::Voice v{};
             v[0] = 11;
             v[1] = 5 | (7 << 3);
-            v[2] = 5;
+            v[2] = 3;
             for (int slot = 0; slot < 4; ++slot) {
                 v[3 + slot] = slot == 0 ? 2 : slot == 2 ? 1 : 0;
                 v[7 + slot] = slot == 0 ? 24 : slot == 2 ? 15 : 127;
@@ -1664,7 +1665,7 @@ int main() {
             mdx::Player player(song,{},opts);int tl=0,ons=0;
             player.registerTrace=[&](uint64_t,int a,int v){
                 if(a==0x60) tl=v;
-                if(a==8 && (v&7)==0 && (v&120)) {require(tl==49,"MD0 did not reset MA phase on retrigger");++ons;}
+                if(a==8 && (v&7)==0 && (v&120)) {require(tl==(ons==0?40:49),"MD0 did not preserve MA phase on retrigger");++ons;}
             };
             render(player);require(ons==2,"missing MA retrigger coverage");
         }
@@ -1722,6 +1723,50 @@ int main() {
             }
         }
         ++passed;
+        // Finite songs repeat only after release silence in interactive unlimited mode.
+        {
+            mdx::Options o; o.loops=0; o.maxSeconds=0;
+            auto state=std::make_shared<mdx::VoiceState>();
+            auto queue=std::make_shared<mdx::MidiQueue>();
+            mdx::Song song(oneTrack({253,0,182,3,241,0}));
+            mdx::Player player(song,{},o);
+            auto timeline=player.analyze();
+            std::atomic<bool> pause{false};
+            std::atomic<double> seek{-1},current{0},total{0};
+            mdx::LiveSession session(&player,&player,timeline,state,queue,o,pause,seek,current,total,[]{return false;});
+            std::array<int16_t,2048> buffer{};
+            int restarts=0; double previous=0;
+            for(int i=0;i<200;++i) {
+                require(session.render(buffer.data(),1024)>0,"finite unlimited playback ended");
+                double now=player.seconds();
+                if(now<previous) { ++restarts; require(previous>=.1,"restart before silence guard"); }
+                previous=now;
+            }
+            require(restarts>=2,"finite unlimited playback failed to repeat");
+        }
+        ++passed;
+        // Live loop switches are accepted only before fading starts.
+        {
+            auto run=[](int scenario) {
+                mdx::Options o; o.maxSeconds=0; o.fadeSeconds=.1;
+                o.liveLoops=std::make_shared<std::atomic<int>>(scenario==0 ? 0:2);
+                mdx::Player p(mdx::Song(oneTrack({253,0,180,1,241,255,251})),{},o);
+                std::array<int16_t,960> out{};
+                for(int n=0;n<30;++n) {
+                    auto count=p.render(out.data(),480);
+                    if(scenario!=2) require(count>0,"live unlimited playback stopped");
+                    if(scenario==1 && n==1) o.liveLoops->store(0);
+                    if(scenario==2 && n==10) o.liveLoops->store(0);
+                }
+                if(scenario==0) o.liveLoops->store(2); // many loops already elapsed
+                if(scenario==1) { require(p.unlimited(),"ON did not enable unlimited"); return; }
+                for(int n=0;n<30;++n) p.render(out.data(),480);
+                require(p.render(out.data(),480)==0,"OFF or fade lock failed to finish");
+                require(!p.unlimited(),"switch changed a committed fade");
+            };
+            run(0); run(1); run(2);
+        }
+        ++passed;
         // Square pitch LFO: equivalent fixed-point and WAVE+4 encodings.
         for(int amplitude:{1,-24}) for(int wave:{1,5}) {
             int delta=wave==1 ? amplitude*256 : amplitude;
@@ -1734,7 +1779,7 @@ int main() {
                 if(address!=0x30 || tick>=24*896) return;
                 constexpr int semitones[16]={0,1,2,2,3,4,5,5,6,7,8,8,9,10,11,11};
                 int actual=((kc>>4)*12+semitones[kc&15])*64+(value>>2);
-                int sign=(tick/896/4)%2 ? -1 : 1;
+                int sign=tick==0 ? 0 : ((tick/896-1)/4)%2 ? -1 : 1;
                 require(actual==54*64+5+sign*amplitude,"square pitch LFO amplitude/period incorrect");
                 ++seen;
             };
@@ -1742,7 +1787,163 @@ int main() {
             require(seen>=20,"square LFO register coverage missing");
         }
         ++passed;
-        // MP/MA freeze on key-off: final release, rests and a quantized note tail.
+        // MH raw operand bank bits are preserved, as observed in black-box logs.
+        for(int pm:{0x20,0xa0}) for(int am:{0x40,0xc0}) {
+            auto bytes=oneTrack({253,0,234,0,128,uint8_t(pm),uint8_t(am),0x73,176,7,241,0});
+            mdx::Player p(mdx::Song(bytes),{},opts);
+            std::vector<int> writes;
+            p.registerTrace=[&](uint64_t,int address,int value){if(address==0x19)writes.push_back(value);};
+            render(p);
+            require(writes==std::vector<int>({pm,am}),"MH altered explicit PMD/AMD bank bits");
+        }
+        ++passed;
+        // Independent black-box register capture: MP6,8,1, note 48, tempo 200.
+        // Values are final KC/KF states per driver tick, not write-order dependent.
+        {
+            const int offsets[]={1,2,3,4,5,4,3,2,1,0,-1,-2,-3,-2,-1,0,1};
+            auto bytes=oneTrack({255,200,253,0,236,6,0,8,0,1,176,31,241,0});
+            mdx::Player p(mdx::Song(bytes),{},opts);
+            int kc=0,seen=0;
+            p.registerTrace=[&](uint64_t tick,int address,int value) {
+                if(address==0x28)kc=value;
+                if(address!=0x30 || tick/896>=std::size(offsets))return;
+                constexpr int semitones[16]={0,1,2,2,3,4,5,5,6,7,8,8,9,10,11,11};
+                int actual=((kc>>4)*12+semitones[kc&15])*64+(value>>2);
+                require(actual==48*64+5+offsets[tick/896],"MP triangle disagrees with captured register values");
+                ++seen;
+            };
+            render(p);require(seen>=17,"MP triangle trace coverage missing");
+        }
+        ++passed;
+        // Negative MA triangle: captured descending half, plus full-cycle,
+        // tied-note and retrigger regression coverage using original inputs.
+        for (int wave : {2,6}) for (int sign : {-1,1}) for(int delay : {0,1,4}) {
+            int period = wave == 2 ? 192 : 8;
+            int depth = sign * (wave == 2 ? 93 : 1);
+            unsigned word = unsigned(depth) & 65535;
+            Bytes cmd{255,200,253,0,251,15,233,uint8_t(delay),235,uint8_t(wave),
+                      uint8_t(period>>8),uint8_t(period),uint8_t(word>>8),uint8_t(word)};
+            for(int n=0;n<4;++n) {
+                if(n<3)cmd.push_back(247);
+                cmd.insert(cmd.end(),{176,127});
+            }
+            cmd.insert(cmd.end(),{176,31,235,128,176,15,241,0});
+            auto file=oneTrack(cmd);
+            size_t voice=5+((file[5]<<8)|file[6]);
+            file[voice+1]=5;file[voice+2]=15;
+            for(int op=0;op<4;++op)file[voice+7+op]=10;
+            auto o=opts;o.maxSeconds=10;
+            mdx::Player p(mdx::Song(file),{},o);
+            std::array<std::array<int,3>,560> states{};
+            for(auto &row:states)row.fill(-1);
+            p.registerTrace=[&](uint64_t tick,int address,int value) {
+                auto n=tick/896;
+                if(n>=states.size())return;
+                for(int op=0;op<3;++op)
+                    if(address==0x68+8*op)states[n][op]=value;
+            };
+            render(p);
+            for(int n=0;n<560;++n) {
+                int age=n<512?n:n-512;
+                int phase=delay==0?n:age;
+                if(delay)phase=std::max(0,phase-delay+1);
+                int q=phase%(2*period),ramp=std::min(q,2*period-q);
+                int amplitude=wave==2?93:256;
+                int expected=n>=544 || age<std::max(0,delay-1)?12:12+(sign<0?period-ramp:ramp)*amplitude/256;
+                for(int op=0;op<3;++op) {
+                    if(n>=545 && states[n][op]<0)states[n][op]=states[n-1][op];
+                    if(states[n][op]!=expected) throw std::runtime_error("signed MA triangle mismatch wave="+std::to_string(wave)+" sign="+std::to_string(sign)+" tick="+std::to_string(n)+" op="+std::to_string(op)+" actual="+std::to_string(states[n][op])+" expected="+std::to_string(expected));
+                }
+            }
+        }
+        ++passed;
+        // Black-box captures: negative MA saw/square start attenuated.
+        for (int wave : {0,1}) for (int depth : {-256,-93,0,93,256}) {
+            unsigned word = unsigned(depth) & 65535;
+            auto file = oneTrack({255,200,253,0,251,128,233,0,235,uint8_t(wave),
+                                  0,8,uint8_t(word>>8),uint8_t(word),176,31,241,0});
+            size_t voice = 5 + ((file[5]<<8)|file[6]);
+            file[voice+7] = 32;
+            mdx::Player p(mdx::Song(file),{},opts);
+            std::array<int,32> values{};
+            values.fill(-1);
+            p.registerTrace = [&](uint64_t tick,int address,int value) {
+                if (address == 0x60 && tick/896 < values.size())
+                    values[tick/896] = value;
+            };
+            render(p);
+            for (int tick=0;tick<32;++tick) {
+                int displacement = wave==0 ? (tick%8)*depth + std::max(0,-8*depth)
+                                           : ((tick/8)%2)*depth + std::max(0,-depth);
+                require(values[tick]==32+displacement/256,"signed MA saw/square trace mismatch");
+            }
+        }
+        ++passed;
+        {
+            mdx::SoftwareLfoRandom rng;
+            const int captured[] = {1844,-16525,21930,17995,-6111,-21489,14545,-21830};
+            for(int expected : captured)
+                require(rng.next()==expected,"random recurrence disagrees with independent capture");
+        }
+        ++passed;
+        for(int detune : {-32768,-20480,20480,32767}) {
+            unsigned word=unsigned(detune)&65535;
+            auto data=oneTrack({255,200,253,0,243,uint8_t(word>>8),uint8_t(word),236,3,0,1,0,93,176,15,241,0});
+            mdx::Player player(mdx::Song(data),{},opts);
+            std::array<int,16> pitches{};
+            int kc=0;
+            player.registerTrace=[&](uint64_t tick,int address,int value) {
+                if(address==0x28)kc=value;
+                if(address!=0x30 || tick/896>=pitches.size())return;
+                constexpr int semitones[16]={0,1,2,2,3,4,5,5,6,7,8,8,9,10,11,11};
+                pitches[tick/896]=((kc>>4)*12+semitones[kc&15])*64+(value>>2);
+            };
+            render(player);
+            mdx::SoftwareLfoRandom rng;
+            for(int tick=0;tick<16;++tick) {
+                int sample=tick?rng.next():0;
+                int raw=3077+detune+int(std::floor(sample*93.0/256));
+                int wrapped=int(unsigned(raw)&65535);
+                if(wrapped>=32768)wrapped-=65536;
+                require(pitches[tick]==std::clamp(wrapped,0,6143),"random pitch overflow handling mismatch");
+            }
+        }
+        ++passed;
+        // Captured first random sample = 1844. Depth boundary arithmetic is
+        // independent of the sequence generator.
+        {
+            const int depths[] = {1,93,127,128,129,255,256,257,-1,-93,-127,-128,-129,-255,-256,-257};
+            const int pitchDepths[] = {1,93,127,-128,-127,-1,0,1,-1,-93,-127,-128,127,1,0,-1};
+            const int amplitude[] = {7,157,146,154,161,44,52,59,248,98,109,102,94,211,204,196};
+            for(size_t i=0;i<std::size(depths);++i) {
+                require(mdx::randomPitchDepth(depths[i])==pitchDepths[i],"random MP signed byte mismatch");
+                require(mdx::randomAmplitude(1844,depths[i])==amplitude[i],"random MA integer extraction mismatch");
+            }
+            require(mdx::randomAmplitude(-16525,1)==191,"negative random product rounding mismatch");
+            require(mdx::randomAmplitude(-16525,-1)==64,"negative depth random product mismatch");
+        }
+        ++passed;
+        for(bool pitch : {false,true}) {
+            auto data=oneTrack({255,200,253,0,251,128,uint8_t(pitch?236:235),3,0,4,0,1,176,31,241,0});
+            mdx::Player player(mdx::Song(data),{},opts);
+            std::array<int,32> values{};
+            int kc=0;
+            player.registerTrace=[&](uint64_t tick,int address,int value) {
+                if(tick/896>=values.size())return;
+                if(address==0x28)kc=value;
+                if(pitch && address==0x30)values[tick/896]=kc*256+value;
+                if(!pitch && address==0x60)values[tick/896]=value;
+            };
+            render(player);
+            int changes=0;
+            for(int tick=1;tick<32;++tick) if(values[tick]!=values[tick-1]) {
+                require((tick-(pitch?1:0))%4==0,"random update occurred outside period boundary");
+                ++changes;
+            }
+            require(changes>=3,"random sample-and-hold lacks variation");
+        }
+        ++passed;
+        // MP/MA retain modulation during active-track rests and quantized tails.
         for (int scenario : {0,1,2}) {
             Bytes commands{253,0,251,128,236,2,0,6,48,0,235,0,0,100,1,0};
             if(scenario==2) commands.insert(commands.end(),{0xf8,1}); // q1
@@ -1752,7 +1953,7 @@ int main() {
             mdx::Player p(mdx::Song(oneTrack(commands)),{},opts);
             uint64_t offAt=0;
             bool keyed=false;
-            int heldPitch=0,heldVolume=0;
+            int heldPitch=0,heldVolume=0,releaseWrites=0;
             p.registerTrace=[&](uint64_t t,int a,int v) {
                 if(a==8 && (v&7)==0) {
                     if(v&120) { require(!keyed,"unexpected LFO note retrigger");keyed=true; }
@@ -1762,13 +1963,12 @@ int main() {
                     if(a==0x30) ++heldPitch;
                     if(a==0x60) ++heldVolume;
                 }
-                if(offAt && t>offAt)
-                    require(a!=0x28 && a!=0x30 && (a<0x60 || a>=0x80),
-                            "software LFO kept writing after key-off");
+                if(offAt && t>offAt && (a==0x30 || a==0x60)) ++releaseWrites;
             };
             auto output=render(p);
             require(keyed && offAt,"LFO gate test never keyed off");
             if(scenario!=2) require(heldPitch>3 && heldVolume>3,"held-note LFO stopped");
+            if(scenario!=0) require(releaseWrites>3,"release/rest LFO stopped");
             require(output.size()<150000,"unexpected final release duration");
         }
         ++passed;
@@ -1890,6 +2090,61 @@ int main() {
             gain.write(0x20,0xc0,capture);
             require(actual[0x60] == 2 && actual[0x68] == 2 && actual[0x70] == 2 && actual[0x78] == 10,
                     "algorithm change retained gain on modulators");
+        }
+        ++passed;
+        // Live instrument edits share one definition across tracks and survive seeks.
+        {
+            std::vector<Bytes> tracks(9, Bytes{241,0});
+            tracks[0]=tracks[1]=Bytes{255,200,253,0,251,128,0x80+54,255,241,0};
+            mdx::Song song(songFile(tracks));
+            song.voices[200]=song.voices[0]; song.voices[200][0]=200; song.hasVoice[200]=true;
+            auto state=std::make_shared<mdx::VoiceState>();
+            state->beginVoiceSession(song.voices,song.hasVoice);
+            auto original=song.voices[0];
+            require(state->initialDefined[200], "unused instrument not snapshotted");
+            auto edited=original; edited[3]=2; edited[7]=30;
+            std::string error;
+            auto parsed=mdx::parseVoiceMml(mdx::voiceMml(edited,0),error);
+            require(parsed && *parsed==edited, "instrument MML round trip failed");
+            auto mml = mdx::voiceMml(edited, 0);
+            std::wstring text(mml.begin(), mml.end());
+            auto spans = mdx::voiceParameterSpans(text);
+            require(spans.size() == 47, "parameter color spans include comments or instrument ID");
+            require(text.substr(spans[0].first, spans[0].second-spans[0].first)==L"31",
+                    "first parameter color span incorrect");
+            auto special = mdx::voiceParameterSpans(L"@9={/* 123 */ +$f, -2; 345\n 3}");
+            require(special.size()==3, "signed hexadecimal/comment color spans incorrect");
+            auto o=opts; o.voiceState=state;
+            mdx::Player player(song,{},o);
+            std::array<int16_t,2048> audio{};
+            player.render(audio.data(),1024);
+            std::array<int,256> registers{};
+            int keyOffs=0;
+            player.registerTrace=[&](uint64_t,int a,int v){registers[a]=v; if(a==8 && !(v&120)) ++keyOffs;};
+            require(state->editVoice(0,edited), "live edit rejected");
+            player.render(audio.data(),1024);
+            require(registers[0x40]==2 && registers[0x41]==2, "shared instrument edit missed track");
+            require(keyOffs==0, "instrument edit interrupted held notes");
+            require(state->initialDefinitions[0]==original, "edit changed snapshot");
+            require(player.seek(.01), "edited instrument seek failed");
+            player.render(audio.data(),1024);
+            require(state->voices[0][3]==2, "seek discarded instrument edit");
+            state->editVoice(0,state->initialDefinitions[0]);
+            player.render(audio.data(),1024);
+            require(registers[0x40]==original[3] && registers[0x41]==original[3], "instrument reset failed");
+            state->editVoice(200,edited);
+            require(state->definitions[200][0]==200, "edit changed instrument number");
+            state->beginVoiceSession(song.voices,song.hasVoice);
+            require(state->definitions[200]==song.voices[200], "new session retained old edits");
+            state->valid[0]=true; state->voices[0]=original; state->ids[0]=0;
+            auto queue=std::make_shared<mdx::MidiQueue>();
+            mdx::MidiSynth midi(state,queue,48000);
+            queue->push(0x90 | (60<<8) | (100<<16));
+            midi.mix(audio.data(),1024);
+            state->editVoice(0,edited);
+            midi.mix(audio.data(),1024);
+            require(state->registers[0x40]==2 && state->midiNotes[0]==60,
+                    "held MIDI note did not receive edit");
         }
         ++passed;
         // Bound malformed inputs under ASan/UBSan without importing any music.

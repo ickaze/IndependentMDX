@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #pragma once
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -6,6 +9,7 @@
 #include <windows.h>
 #include <mmsystem.h>
 #include "player.h"
+#include "audio_buffer_order.h"
 #include <array>
 #include <functional>
 #include <stdexcept>
@@ -52,9 +56,11 @@ inline void playWindows(Source &source, int rate, const std::function<bool()> &s
             throw std::runtime_error("Audio buffer preparation failed");
     }
     bool ended = false, wasPaused = false;
+    size_t nextBuffer = 0;
     while (!stop()) {
         if (source.servicePending()) {
             waveOutReset(device.handle);
+            nextBuffer = 0;
             source.service();
             if (!pause())
                 waveOutRestart(device.handle);
@@ -68,25 +74,19 @@ inline void playWindows(Source &source, int rate, const std::function<bool()> &s
                 waveOutRestart(device.handle);
             wasPaused = isPaused;
         }
-        bool pending = false;
-        for (size_t i = 0; i < device.headers.size(); ++i) {
+        if (!ended && !isPaused) refillAudioBuffers(nextBuffer, device.headers.size(), [&](size_t i) {
             auto &h = device.headers[i];
-            if ((h.dwFlags & WHDR_INQUEUE) != 0) {
-                pending = true;
-                continue;
-            }
-            if (ended || isPaused)
-                continue;
+            if ((h.dwFlags & WHDR_INQUEUE) != 0) return false;
             size_t frames = source.render(device.data[i].data(), device.data[i].size() / 2);
-            if (!frames) {
-                ended = true;
-                continue;
-            }
+            if (!frames) { ended = true; return false; }
             h.dwBufferLength = static_cast<DWORD>(frames * 4);
             if (waveOutWrite(device.handle, &h, sizeof(h)) != MMSYSERR_NOERROR)
                 throw std::runtime_error("Audio buffer submission failed");
-            pending = true;
-        }
+            return true;
+        });
+        bool pending = false;
+        for (const auto &h : device.headers)
+            pending |= (h.dwFlags & WHDR_INQUEUE) != 0;
         if (progress) {
             MMTIME position{};
             position.wType = TIME_SAMPLES;

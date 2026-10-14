@@ -1,0 +1,6 @@
+feat: play MRL logs and browse ZIP archives
+
+Replay MDXRLOG 1.0 events without integer VGM timestamp rounding.
+Add bounded ZIP32 Stored/Deflate extraction and stable virtual paths for
+selection, PDX lookup, bookmarks and last-file restoration.
+Validate archive paths, CRCs and MRL structure; add regression coverage.

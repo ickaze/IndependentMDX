@@ -1,14 +1,15 @@
-# IndependentMDX 0.9 — distribution audit
+# IndependentMDX 0.33.5 distribution audit
 
-Updated independent-opm-0.11b.zip (Library version 6), downloaded 2026-09-22.
-Archive SHA-256: `8cef9b0b8c04bd21f38f6e470f5ba2285d04e2228456283e75a2f41c02444015`
+The unmodified Independent OPM 0.14 Windows x64 DLL, C API header and license are copied from the 0.14 Windows package. No synthesis implementation or private monitor core is bundled or statically linked. Linux tests use a separately built, unmodified upstream 0.14 shared library outside this distribution.
 
-Supplied x64 independent_opm.dll SHA-256: `26ca691c1cdb0b090fc7f76e7c6224882c1129b5f20dfdff5b187750e693e20f`
+DLL SHA-256: `701166ec2784e4b59db30a65ab07006f78b02b9883e88d8c663784b4ebf7309b`
 
-The packaged DLL is byte-identical to the attachment. Its PE machine is AMD64 and its exported functions match C ABI 1. No binary/source equivalence claim is made from export inspection alone. Actual DLL execution remains to be verified on Windows.
+YM2151 key-on register bits are passed to the DLL unchanged. The obsolete host-side bit 4/5 swap was removed in 0.30.1; the DLL handles operator-slot mapping. The DLL itself is not modified.
 
-All upstream files are copied without modification. The main upstream tree remains unmodified. A separately named monitor_core copy adds a read-only channel tap for visualization only; its full changes are in MONITOR_CORE_PATCH.diff. Windows playback dynamically resolves the C API in the supplied DLL; audible output does not use a static fallback. The visualization-only mirror is statically linked in its own namespace. Linux regression builds link the same upstream C API source. All eight monitor signals come from one visualization mirror; the authoritative audible mix uses the supplied DLL.
+Instrument text and knob controls adapted from NOTE-MDX-Workbench 2.8.21 retain Copyright (C) 2026 by I.C.KaZe and the 0BSD license. C86CTL interface declarations retain their BSD notices. C86CTL and X68Sound DLLs are not distributed. Compiler/runtime notices remain in THIRD_PARTY_NOTICES.txt.
 
-Current upstream LICENSE.txt and THIRD_PARTY_NOTICES.txt are preserved. No statement that these match a different 0.10b archive is added. The upstream package retains its own historical correction documents.
+Windows PE dependency inspection does not establish runtime correctness. See VALIDATION.md for executed versus build-only checks. SHA256SUMS.txt lists packaged file hashes.
 
-C86CTL interface declarations are derived from the official public header and are covered by the retained BSD license in third_party/. No C86CTL DLL or implementation is bundled. Root/bin notices include this scope, the application license, the current OPM notices and application compiler/runtime notices. Actual packaged hashes are recorded in SHA256SUMS.txt.
+Lhasa 0.6.0 archive parsing/decoding sources are bundled unmodified in third_party/lhasa/lib and statically linked. The ISC copyright/license is reproduced in third_party/lhasa/COPYING.md and both copies of THIRD_PARTY_NOTICES.txt. Integration and source provenance are documented in third_party/lhasa/README.md. No Lhasa CLI or external extraction DLL is required.
+
+Packaging correction within 0.33.5: build_vs2022.bat uses CRLF line endings; distribution notices identify the current version and Independent OPM author. Project source headers follow the existing LICENSE.txt scope; third-party notices are retained. The IndependentMDX contributors attribution is retained rather than reassigning copyright ownership. The historical LFO note explicitly records its unverified excerpt provenance. Executable and DLL bytes are unchanged by this packaging correction. SHA256SUMS.txt has been regenerated.

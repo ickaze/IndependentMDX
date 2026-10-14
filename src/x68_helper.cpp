@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 // x86-only DLL host. Calls the public C API; no X68Sound implementation is embedded.
 #define NOMINMAX
 #include <windows.h>

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: 0BSD
+// Copyright (c) 2026 IndependentMDX contributors
+
 #pragma once
 #include "opm_backend.h"
 #include "player.h"
@@ -166,6 +169,7 @@ class MidiSynth {
     int sampleRate;
     double phase = 0;
     size_t releaseFrames = 0;
+    uint64_t voiceRevision = UINT64_MAX;
     OpmBackend::Frame held{};
     void write(int a, int v) {
         chip.write_register(uint8_t(a), uint8_t(v));
@@ -434,6 +438,24 @@ class MidiSynth {
         }
         for (auto m : pending)
             route(m);
+        if(voiceRevision != state->editRevision.load()) {
+            std::array<bool,8> changed{};
+            {
+                std::lock_guard<std::mutex> lock(state->mutex);
+                voiceRevision=state->editRevision.load();
+                for(int ch=0;ch<8;++ch) {
+                    int id=voices[ch][0];
+                    if(note[ch]>=0 && state->defined[id] && voices[ch]!=state->definitions[id]) {
+                        voices[ch]=state->definitions[id];
+                        changed[ch]=true;
+                    }
+                }
+            }
+            for(int ch=0;ch<8;++ch) if(changed[ch]) {
+                programVoice(ch);
+                write(8,ch | ((voices[ch][2]&15)<<3));
+            }
+        }
         for (int c = 0; c < 16; ++c)
             state->midiNotes[c] = note[c];
         bool heldFm = false;

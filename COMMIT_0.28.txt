@@ -1,0 +1,5 @@
+feat: add MDX register log export and public binary format
+
+Add --reglog-folder to produce timestamped YM2151 logs with mirrored folders.
+Document MDXRLOG 1.0 byte layout, timing profile, phases and comparison rules.
+Preserve ordering and duplicate writes; omit synthesis and PDX loading.

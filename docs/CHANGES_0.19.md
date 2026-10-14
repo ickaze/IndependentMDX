@@ -1,3 +1,5 @@
+> Historical release note. These details describe the named earlier version; see README.md and docs/VALIDATION.md for the current distribution.
+
 # IndependentMDX 0.19 — UI and rendering load
 
 ## Changes

@@ -1,0 +1,8 @@
+Reproduce captured software-LFO RNG and signed pitch overflow
+
+Replace the approximate mixer with a recurrence independently inferred from
+register captures. Preserve the full product for random output and the low
+16 bits for feedback. Correct signed pitch overflow before range clipping.
+
+Match target states in all 202 available LFO probe cases; document excluded
+inputs, comparison scope, native tests and Windows build-only validation.

@@ -285,6 +285,22 @@ int wmain() {
             requireUi(integer(loopsEdit, 1, 1000) == 7 && livePcmMuteMask->load() == 128,
                       "language change loses state");
         }
+        auto archiveFixture=std::filesystem::path(__FILE__).parent_path()/"fixtures/browser.zip";
+        navigate(archiveFixture);
+        requireUi(folder==std::filesystem::absolute(archiveFixture).lexically_normal(),"ZIP virtual folder path");
+        auto archiveSub=folder/std::filesystem::u8path(u8"日本語");
+        navigate(archiveSub);
+        requireUi(files.size()==3,"ZIP child listing");
+        auto savedBookmarks=bookmarks;
+        extrasCommand(MAKEWPARAM(108,BN_CLICKED));
+        requireUi(bookmarks.back()==archiveSub,"ZIP bookmark stores virtual path");
+        navigate(temp);
+        navigate(bookmarks.back());
+        requireUi(folder==archiveSub,"ZIP bookmark restore");
+        bookmarks=savedBookmarks;updateBookmarks();
+        navigate(archiveSub.parent_path());
+        int zipSelection=ListView_GetNextItem(browserList,-1,LVNI_SELECTED);
+        requireUi(zipSelection>=0 && files[zipSelection].path==archiveSub,"ZIP parent selection");
         navigate(temp);
         requireUi(files.size() == 4 && files[0].directory() && files[1].name == L"2.mdx" &&
                       files[2].name == L"10.mdx",
@@ -377,7 +393,8 @@ int wmain() {
             retainedVoices->defined[23] = true;
             retainedVoices->definitions[23][1] = 7;
             retainedVoices->definitions[23][2] = 15;
-            ++retainedVoices->catalogRevision;
+            retainedVoices->definitions[23][0]=23;
+            retainedVoices->beginVoiceSession(retainedVoices->definitions,retainedVoices->defined);
         }
         showVoices();
         requireUi(ListView_GetItemCount(voiceList) == 1, "instrument catalog missing");
@@ -389,13 +406,57 @@ int wmain() {
         requireUi(selectedVoice == -1, "channel selection did not restore live mode");
         requireUi(voiceWindow && voiceEdit && registerEdit, "voice viewer creation");
         requireUi(voiceKeyboard && auditionOctave == 4, "audition keyboard/default octave");
+        requireUi(baselineVoiceValid && IsWindowEnabled(parameterKnobs[0]), "MDX controls disabled");
+        setParameterValue(0,17); changedVoiceParameter();
+        NMLVCUSTOMDRAW draw{};
+        draw.nmcd.hdr.hwndFrom=voiceList; draw.nmcd.hdr.code=NM_CUSTOMDRAW;
+        draw.nmcd.dwDrawStage=CDDS_ITEMPREPAINT; draw.nmcd.lItemlParam=23;
+        draw.nmcd.uItemState=CDIS_SELECTED;
+        SendMessageW(voiceWindow,WM_NOTIFY,4,LPARAM(&draw));
+        requireUi(draw.clrText==RGB(255,95,95),"changed instrument list text not red");
+        CHARRANGE changedSpan{0, 0};
+        GETTEXTLENGTHEX textLength{GTL_NUMCHARS | GTL_PRECISE,1200};
+        int count=int(SendMessageW(voiceEdit,EM_GETTEXTLENGTHEX,WPARAM(&textLength),0));
+        std::wstring richText(count+1,L'\0');
+        GETTEXTEX getText{DWORD(richText.size()*sizeof(wchar_t)),GT_DEFAULT,1200,nullptr,nullptr};
+        richText.resize(SendMessageW(voiceEdit,EM_GETTEXTEX,WPARAM(&getText),LPARAM(richText.data())));
+        auto spans=mdx::voiceParameterSpans(richText);
+        requireUi(spans.size()==47,"MML parameter span count");
+        changedSpan={LONG(spans[0].first),LONG(spans[0].second)};
+        SendMessageW(voiceEdit,EM_EXSETSEL,0,LPARAM(&changedSpan));
+        CHARFORMAT2W format{}; format.cbSize=sizeof(format);
+        SendMessageW(voiceEdit,EM_GETCHARFORMAT,SCF_SELECTION,LPARAM(&format));
+        requireUi(format.crTextColor==RGB(255,95,95),"changed MML parameter not red");
+        RECT textBounds{}; SendMessageW(voiceEdit,EM_GETRECT,0,LPARAM(&textBounds));
+        HDC textDc=GetDC(voiceEdit); auto oldFont=SelectObject(textDc,voiceFont);
+        TEXTMETRICW metric{}; GetTextMetricsW(textDc,&metric);
+        SelectObject(textDc,oldFont); ReleaseDC(voiceEdit,textDc);
+        requireUi(textBounds.bottom-textBounds.top>=9*metric.tmHeight,"nine MML rows do not fit");
+        requireUi((retainedVoices->definitions[23][11]&31)==17 && IsWindowEnabled(voiceReset),
+                  "knob edit not published");
+        SendMessageW(voiceWindow,WM_COMMAND,8,0);
+        requireUi(retainedVoices->definitions[23]==retainedVoices->initialDefinitions[23], "reset failed");
+        showVoices();
+        requireUi(!IsWindowVisible(voiceWindow) && !voiceWantedVisible,"voice toggle did not hide");
+        showVoices();
+        requireUi(IsWindowVisible(voiceWindow) && voiceWantedVisible,"voice toggle did not show");
+        saveSettings();
+        requireUi(setting(L"VoiceVisible",0)==1 && setting(L"VoiceWidth",0)>=DWORD(scale(800)),
+                  "voice window preferences missing");
+        RECT savedVoiceRect{}; GetWindowRect(voiceWindow,&savedVoiceRect);
+        DestroyWindow(voiceWindow);
+        showVoices(false);
+        RECT restoredVoiceRect{}; GetWindowRect(voiceWindow,&restoredVoiceRect);
+        requireUi(EqualRect(&savedVoiceRect,&restoredVoiceRect),"voice placement not restored");
+        MSG typing{}; typing.hwnd=voiceEdit; typing.message=WM_KEYDOWN; typing.wParam='A';
+        requireUi(!voiceKeyMessage(typing), "MML typing triggered audition");
         running = true; // Exercise queue wiring without opening an audio device.
         midiQueue->clear();
         MSG key{};
-        key.hwnd = voiceEdit;
+        key.hwnd = voiceKeyboard;
         key.message = WM_KEYDOWN;
         key.wParam = 'A';
-        requireUi(voiceKeyMessage(key), "audition key not intercepted from edit");
+        requireUi(voiceKeyMessage(key), "audition key not intercepted from keyboard");
         requireUi(auditionKeys[0].note == 60, "A did not play o4 C");
         key.wParam = 'K';
         voiceKeyMessage(key);
@@ -433,6 +494,25 @@ int wmain() {
         GetModuleFileNameW(nullptr, exe, 32768);
         if (std::filesystem::exists(std::filesystem::path(exe).parent_path() / L"THIRD_PARTY_NOTICES.txt"))
             requireUi(GetWindowTextLengthW(licenseEdit) > 1000, "license text not loaded");
+        {
+            for(auto ext:{"TXT","HED","MUS","PDL"})std::ofstream(temp / (std::string("2.")+ext)) << ext;
+            requireUi(textFile(L"readme.HED") && textFile(L"readme.pdl"),"HED/PDL text detection");
+            std::ofstream(temp / "2.DOC") << "Line one\nLine two\n";
+            navigate(temp);
+            auto row=std::find_if(files.begin(),files.end(),[](const FileRow &f){return f.name==L"2.mdx";});
+            requireUi(row!=files.end() && !row->document.empty() && row->icon==documentIcons.at(L"DOC"),"sidecar DOC icon missing");
+            requireUi(row->documents.size()==5,"sidecar menu choices missing");
+            for(size_t i=0;i<5;++i)requireUi(documentPriority(row->documents[i].extension().wstring())==int(i),"sidecar priority incorrect");
+            auto path=row->document;
+            running=true; showDocument(path);
+            requireUi(running && IsWindowVisible(documentWindow),"viewer stopped playback");
+            requireUi(GetWindowTextLengthW(documentEdit)>10,"document text missing");
+            showDocument(path);requireUi(!IsWindowVisible(documentWindow),"viewer toggle failed");
+            running=false;
+            SendMessageW(allFilter,BM_SETCHECK,BST_CHECKED,0);navigate(temp);
+            requireUi(std::any_of(files.begin(),files.end(),[](const FileRow &f){return f.name==L"ignore.txt";}),"all-files filter missing text");
+            SendMessageW(allFilter,BM_SETCHECK,BST_UNCHECKED,0);
+        }
         std::cout << "PASS: language, bounds, dropdown, defaults, keyboard mute, browser, columns, debounce "
                      "and restore, license window\n";
     } catch (const std::exception &e) {
