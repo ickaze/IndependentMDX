@@ -1,5 +1,9 @@
-# IndependentMDX 0.33.5 validation
+# IndependentMDX 0.34.0 validation
 
+
+## 0.34.0
+
+Windows x64 cross-build and native NDSIF mock transport test passed. No physical NanoDrive or Windows audio session was tested. See [NDSIF](NDSIF.md).
 
 ## 0.33.5
 

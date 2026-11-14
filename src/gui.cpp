@@ -6,6 +6,7 @@
 #define NOMINMAX
 #include "algorithm_layout.h"
 #include "c86_output.h"
+#include "ndsif_output.h"
 #include "carrier_notes.h"
 #include "live_session.h"
 #include "player.h"
@@ -81,7 +82,29 @@ HMIDIIN midiInput = nullptr;
 int activeMidiDevice = -1;
 std::vector<std::filesystem::path> pendingCommandFiles;
 constexpr ULONG_PTR commandFileTag = 0x494d4458;
-mdx::C86Output hardware;
+struct Hardware : mdx::C86Output {
+    mdx::NdOutput nd;
+    bool active() const { return nd.active() || C86Output::active(); }
+    void close(){nd.close();C86Output::close();}
+    void reset(){if(nd.active())nd.reset();else C86Output::reset();}
+    void write(int a,int v){if(nd.active())nd.write(a,v);else C86Output::write(a,v);}
+    void scheduled(uint64_t t,int a,int v,const std::atomic<bool>& stop){
+        if(nd.active())nd.scheduled(t,a,v,stop);else C86Output::scheduled(t,a,v,stop);}
+    void setGain(double m,double f){nd.setGain(m,f);C86Output::setGain(m,f);}
+    void setDelay(int d){nd.setDelay(d);C86Output::setDelay(d);}
+} hardware;
+HWND ndPortBox, ndPcmBox;
+int ndPort=0; bool ndDevicePcm=false;
+void refreshNdPorts(){
+    SendMessageW(ndPortBox,CB_RESETCONTENT,0,0);
+    wchar_t target[2048];int selected=-1;
+    for(int i=1;i<=256;++i){auto name=L"COM"+std::to_wstring(i);
+        if(!QueryDosDeviceW(name.c_str(),target,2048)&&i!=ndPort)continue;
+        int index=int(SendMessageW(ndPortBox,CB_ADDSTRING,0,LPARAM(name.c_str())));
+        SendMessageW(ndPortBox,CB_SETITEMDATA,index,i);if(i==ndPort)selected=index;}
+    if(selected<0 && SendMessageW(ndPortBox,CB_GETCOUNT,0,0)>0){selected=0;ndPort=int(SendMessageW(ndPortBox,CB_GETITEMDATA,0,0));}
+    SendMessageW(ndPortBox,CB_SETCURSEL,selected,0);
+}
 std::atomic<int> selectedOutput{0};
 auto retainedVoices = std::make_shared<mdx::VoiceState>();
 auto midiQueue = std::make_shared<mdx::MidiQueue>();
@@ -468,6 +491,8 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false,
         options.independentGain = integer(independentGainEdit, 0, 800) / 100.0;
         if (!exportWav) {
             options.externalFm = hardware.active();
+            options.variableExternalClock = hardware.nd.active();
+            if(hardware.nd.devicePcm()) options.sampleRate=15625;
             if (options.externalFm)
                 options.registerOutput = [](uint64_t t, int a, int v) {
                     int ch = a == 8 ? (v & 7) : (a >= 0x20 ? (a & 7) : -1);
@@ -490,6 +515,7 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false,
             options.liveAftertouch = liveAftertouch;
             options.fmDelayMs = integer(fmDelayEdit, 0, 2000);
             options.pcmDelayMs = integer(pcmDelayEdit, 0, 2000);
+            if(hardware.nd.devicePcm())options.fmDelayMs=options.pcmDelayMs=0;
             hardware.setDelay(options.fmDelayMs);
         }
         options.loops =
@@ -528,6 +554,7 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false,
         worker = std::thread([file, bankPath, options, sample, format, output, generation, logTitle, resumePosition, resumePaused, continuing] {
             try {
                 std::unique_ptr<mdx::Source> source;
+                if(output.empty() && hardware.nd.active() && !mdx::isVgm(file)) hardware.nd.clock(4000000);
                 mdx::Player *music = nullptr;
                 if (isPdx(file)) {
                     mdx::Pdx bank(mdx::readFile(file));
@@ -535,6 +562,7 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false,
                 } else if(mdx::isVgm(file)) {
                     auto song = mdx::loadVgmSong(file,bankPath);
                     *logTitle=song.title;
+                    if(output.empty() && hardware.nd.active())hardware.nd.clock(song.clock);
                     source=std::make_unique<mdx::VgmPlayer>(std::move(song),options);
                 } else {
                     mdx::Song song(mdx::readFile(file));
@@ -568,16 +596,18 @@ void start(bool exportWav, double resumePosition = 0, bool resumePaused = false,
                         running = false;
                         return;
                     }
+                    std::atomic<double> deviceRenderPosition{0};
                     mdx::LiveSession session(
                         source.get(), music, timeline, retainedVoices, midiQueue, options, pauseFlag,
-                        seekRequest, songPosition, songDuration, [] { return stopFlag.load(); },
+                        seekRequest, hardware.nd.devicePcm()?deviceRenderPosition:songPosition, songDuration, [] { return stopFlag.load(); },
                         [] { hardware.reset(); }, [](int a, int v) { hardware.write(a, v); });
                     if(resumePosition>0) {
                         seekRequest=resumePosition;
                         session.service();
                     }
                     if(resumePaused) { pauseFlag=true; session.service(); }
-                    mdx::playWindows(
+                    if(hardware.nd.devicePcm())hardware.nd.play(session,stopFlag,deviceRenderPosition,songPosition,&playbackSeconds);
+                    else mdx::playWindows(
                         session, options.sampleRate, [] { return stopFlag.load(); }, [] { return false; },
                         [](double) { playbackSeconds = songPosition.load(); });
                 } else {
@@ -692,7 +722,7 @@ void organizeControls() {
         {named(L"キー変更対象"),keyModeBox},
         {volumeLabel,masterSlider,gainEdit},
         {fmLabel,independentGainEdit,pcmLabel,pcmGainEdit},
-        {named(L"出力"),outputBox},
+        {named(L"出力"),outputBox,ndPortBox,ndPcmBox},
         {fmDelayLabel,fmDelayEdit,pcmDelayLabel,pcmDelayEdit,delayInfo},
         {},
         {timingLabel,measuredButton},
@@ -1093,6 +1123,8 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         SendMessageW(keyboardHintTip,TTM_ADDTOOLW,0,LPARAM(&hintTool));
         SendMessageW(keyboardHintTip,TTM_SETMAXTIPWIDTH,0,scale(480));
         for(auto slider:{speedSlider,keySlider,masterSlider}) SetWindowSubclass(slider,valueSliderSubclass,1,0);
+        ndPortBox=item(L"COMBOBOX",L"",L"",13,82,28,260,CBS_DROPDOWNLIST|WS_TABSTOP|WS_VSCROLL);
+        ndPcmBox=item(L"COMBOBOX",L"",L"",13,156,28,261,CBS_DROPDOWNLIST|WS_TABSTOP);
         organizeControls();
         updateAdvancedLanguage();
         if(voiceReset) SetWindowTextW(voiceReset,tr(L"リセット",L"Reset"));
@@ -1109,7 +1141,7 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             }
         }
         if (int savedOutput = setting(L"OutputBackend", setting(L"HardwareOutput", 0) ? 2 : 0)) {
-            SendMessageW(outputBox, CB_SETCURSEL, std::clamp(savedOutput, 0, 2), 0);
+            SendMessageW(outputBox, CB_SETCURSEL, std::clamp(savedOutput, 0, 3), 0);
             SendMessageW(hwnd, WM_COMMAND, MAKEWPARAM(38, CBN_SELCHANGE), LPARAM(outputBox));
         }
         auto previous = settingText(L"LastPlayedFile");
@@ -1198,6 +1230,14 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             settingsChanged();
             return 0;
         }
+        if(LOWORD(wparam)==260 && HIWORD(wparam)==CBN_DROPDOWN){refreshNdPorts();return 0;}
+        if((LOWORD(wparam)==260 || LOWORD(wparam)==261) && HIWORD(wparam)==CBN_SELCHANGE){
+            int i=int(SendMessageW(ndPortBox,CB_GETCURSEL,0,0));
+            if(i>=0)ndPort=int(SendMessageW(ndPortBox,CB_GETITEMDATA,i,0));
+            ndDevicePcm=SendMessageW(ndPcmBox,CB_GETCURSEL,0,0)==1;
+            if(selectedOutput==3) SendMessageW(hwnd,WM_COMMAND,MAKEWPARAM(38,CBN_SELCHANGE),LPARAM(outputBox));
+            settingsChanged();return 0;
+        }
         if (LOWORD(wparam) == 38 && HIWORD(wparam) == CBN_SELCHANGE) {
             const bool resume=running.load() && !idleMidi;
             const bool paused=pauseFlag.load();
@@ -1207,6 +1247,16 @@ LRESULT CALLBACK procedure(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             stop();
             hardware.close();
             selectedOutput = int(SendMessageW(outputBox, CB_GETCURSEL, 0, 0));
+            if(selectedOutput==3){
+                try{
+                    if(!ndPort)throw std::runtime_error("NDSIF: select a COM port");
+                    hardware.nd.open(ndPort,ndDevicePcm);
+                    hardware.nd.setChannelOverride(&retainedVoices->midiFmOverride,liveMuteMask.get());
+                    status(L"NDSIF: COM"+std::to_wstring(ndPort));
+                }catch(const std::exception& e){
+                    selectedOutput=0;SendMessageW(outputBox,CB_SETCURSEL,0,0);
+                    applyOutputGains();status(L"ERROR: "+wide(e.what()));return 0;}
+            }
             if (selectedOutput == 2) {
                 try {
                     hardware.open(executableFolder() / L"c86ctl.dll");
@@ -1653,7 +1703,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     cls.hbrBackground = backgroundBrush;
     RegisterClassW(&cls);
     HWND mainWindow =
-        CreateWindowW(cls.lpszClassName, L"IndependentMDX 0.33.5",
+        CreateWindowW(cls.lpszClassName, L"IndependentMDX 0.34.0",
                       WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN | WS_HSCROLL | WS_VSCROLL, CW_USEDEFAULT,
                       CW_USEDEFAULT, 1320, 840, nullptr, nullptr, instance, nullptr);
     if(instanceMutex) { ReleaseMutex(instanceMutex); CloseHandle(instanceMutex); }

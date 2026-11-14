@@ -1,6 +1,8 @@
-# IndependentMDX 0.33.5
+# IndependentMDX 0.34.0
 
-LFOとシーケンスの検証結果を反映し、MRL 1.2（曲名・PCM8ch・任意のPDX内蔵）、MRZ圧縮出力、大容量ZIPの低メモリ読み込みに対応しました。
+出力に **NDSIF (NanoDrive 8)** を追加しました。FMを実機で鳴らし、PCM8chはPCのステレオ出力または本体のモノラルADPCM出力を選べます。[接続・設定・検証範囲](docs/NDSIF.md)。
+
+NanoDrive 8の自作コードは、個別に例外が示されたものを除き、BSD 3-Clause License（Copyright (c) 2024-2026, Fujix）です。IndependentMDXのNDSIFホスト実装（src/ndsif_output.h、src/ndsif_wire.h）は公開通信仕様に基づいて独自に作成したもので、0BSDです。NanoDrive 8のソースコードやファームウェアは同梱していません。
 
 Windows 10/11 x64用のMDX / PDX・YM2151 VGM / VGZ / MRL / MRZプレイヤーです。ZIP/LZH/LHA内の選曲にも対応します。FM音声とチャンネル別波形にはIndependent OPM 0.14のDLLを使用します。音源実装ソースは同梱・静的リンクしていません。
 

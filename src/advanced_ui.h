@@ -26,6 +26,7 @@ void startMidiIdle() {
         try {
             mdx::Options options;
             options.externalFm = hardware.active();
+            if(hardware.nd.devicePcm())options.sampleRate=15625;
             options.monitor = monitorView;
             options.liveMeasuredOutputTiming = liveMeasuredOutputTiming;
             options.measuredOutputTiming = liveMeasuredOutputTiming->load();
@@ -39,7 +40,9 @@ void startMidiIdle() {
                 nullptr, nullptr, {}, retainedVoices, midiQueue, options, pauseFlag, seekRequest,
                 songPosition, songDuration, [] { return stopFlag.load(); }, [] { hardware.reset(); },
                 [](int a, int v) { hardware.write(a, v); });
-            mdx::playWindows(
+            std::atomic<double> idleRendered{0};
+            if(hardware.nd.devicePcm())hardware.nd.play(session,stopFlag,idleRendered,songPosition);
+            else mdx::playWindows(
                 session, options.sampleRate, [] { return stopFlag.load(); }, [] { return false; });
         } catch (const std::exception &e) {
             status(L"ERROR: " + wide(e.what()));
@@ -90,9 +93,13 @@ void updateAdvancedLanguage() {
     }
     int output = int(SendMessageW(outputBox, CB_GETCURSEL, 0, 0));
     SendMessageW(outputBox, CB_RESETCONTENT, 0, 0);
-    for (auto name : {L"Independent OPM DLL", L"X68Sound DLL", L"C86CTL (OPM / YM2151)"})
+    for (auto name : {L"Independent OPM DLL", L"X68Sound DLL", L"C86CTL (OPM / YM2151)", L"NDSIF (NanoDrive 8)"})
         SendMessageW(outputBox, CB_ADDSTRING, 0, LPARAM(name));
     SendMessageW(outputBox, CB_SETCURSEL, std::max(0, output), 0);
+    SendMessageW(ndPcmBox,CB_RESETCONTENT,0,0);
+    for(auto label:{L"PCM: PC", L"PCM: NanoDrive 8"})SendMessageW(ndPcmBox,CB_ADDSTRING,0,LPARAM(label));
+    SendMessageW(ndPcmBox,CB_SETCURSEL,ndDevicePcm,0);
+    refreshNdPorts();
     refreshMidiDevices();
     if (voiceListLabel)
         SetWindowTextW(voiceListLabel, tr(L"音色一覧（* 使用済み）", L"Instruments (* used)"));

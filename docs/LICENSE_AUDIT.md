@@ -1,4 +1,4 @@
-# IndependentMDX 0.33.5 distribution audit
+# IndependentMDX 0.34.0 distribution audit
 
 The unmodified Independent OPM 0.14 Windows x64 DLL, C API header and license are copied from the 0.14 Windows package. No synthesis implementation or private monitor core is bundled or statically linked. Linux tests use a separately built, unmodified upstream 0.14 shared library outside this distribution.
 
@@ -13,3 +13,7 @@ Windows PE dependency inspection does not establish runtime correctness. See VAL
 Lhasa 0.6.0 archive parsing/decoding sources are bundled unmodified in third_party/lhasa/lib and statically linked. The ISC copyright/license is reproduced in third_party/lhasa/COPYING.md and both copies of THIRD_PARTY_NOTICES.txt. Integration and source provenance are documented in third_party/lhasa/README.md. No Lhasa CLI or external extraction DLL is required.
 
 Packaging correction within 0.33.5: build_vs2022.bat uses CRLF line endings; distribution notices identify the current version and Independent OPM author. Project source headers follow the existing LICENSE.txt scope; third-party notices are retained. The IndependentMDX contributors attribution is retained rather than reassigning copyright ownership. The historical LFO note explicitly records its unverified excerpt provenance. Executable and DLL bytes are unchanged by this packaging correction. SHA256SUMS.txt has been regenerated.
+
+The NDSIF backend uses Windows serial APIs and adds no distributable firmware or third-party binary dependency.
+
+Except where otherwise noted, NanoDrive 8 original code is licensed under BSD-3-Clause (Copyright (c) 2024-2026, Fujix). IndependentMDX's NDSIF host implementation (src/ndsif_output.h and src/ndsif_wire.h) was independently written against the public protocol specification and is licensed under 0BSD. No NanoDrive 8 source code or firmware is bundled.

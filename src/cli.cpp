@@ -29,7 +29,7 @@ int run(const std::vector<std::string> &args) {
             };
             std::string arg = args[i];
             if (arg == "--help" || arg == "-h") {
-                std::cout << "IndependentMDX 0.33.5\n"
+                std::cout << "IndependentMDX 0.34.0\n"
                              "independent-mdx song.mdx|song.vgm|song.vgz|song.mrl|song.mrz [--pdx bank.pdx] [--wav output.wav]\n"
                              "independent-mdx bank.pdx --sample 0 [--format 4] [--wav output.wav]\n"
                              "independent-mdx --vgz-folder DIRECTORY [--loops 2] [--seconds 3600] [--no-pcm]\n"

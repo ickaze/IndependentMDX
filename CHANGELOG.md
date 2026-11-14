@@ -1,3 +1,7 @@
+# 0.34.0
+
+Add NanoDrive 8 NDSIF as a fourth GUI output, with selectable PC or device PCM, COM-port selection and retained output settings. See [NDSIF](docs/NDSIF.md).
+
 # 0.33.5
 
 Replace approximate software-LFO RNG with a capture-derived recurrence; fix signed 16-bit pitch overflow. All 202 available probe cases match their target register states. See docs/RANDOM_LFO_0.33.5.md for exclusions and limits.

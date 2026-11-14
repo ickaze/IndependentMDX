@@ -1,4 +1,4 @@
-IndependentMDX 0.33.5 — third-party notices
+IndependentMDX 0.34.0 — third-party notices
 
 Zero-Clause BSD
 
@@ -19,6 +19,11 @@ Scope: newly written files in src/, tests/, build scripts, and original
 synthetic samples in samples/. This license does not replace the licenses
 of Independent OPM, C86CTL interface declarations, or standard compiler/runtime components; see THIRD_PARTY_NOTICES.txt.
 
+
+NDSIF protocol reference
+
+Except where otherwise noted, NanoDrive 8 original code is licensed under BSD-3-Clause (Copyright (c) 2024-2026, Fujix). IndependentMDX's NDSIF host implementation (src/ndsif_output.h and src/ndsif_wire.h) was independently written against the public protocol specification and is licensed under 0BSD. No NanoDrive 8 source code or firmware is bundled.
+https://github.com/Fujix1/NanoDrive8/blob/main/LICENSE
 
 Independent OPM 0.14 (unmodified C ABI DLL and public API header)
 

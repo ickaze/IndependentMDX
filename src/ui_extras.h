@@ -893,9 +893,9 @@ void createExtras() {
 struct OutputGains {
     int fm = 200, pcm = 100, master = 100;
 };
-std::array<OutputGains, 3> outputGains{{{200, 100, 100}, {200, 100, 100}, {100, 100, 100}}};
+std::array<OutputGains, 4> outputGains{{{200, 100, 100}, {200, 100, 100}, {100, 100, 100}, {100,100,100}}};
 void captureOutputGains() {
-    auto &v = outputGains[std::clamp(selectedOutput.load(), 0, 2)];
+    auto &v = outputGains[std::clamp(selectedOutput.load(), 0, 3)];
     try {
         v.fm = integer(independentGainEdit, 0, 800);
     } catch (...) {
@@ -911,7 +911,7 @@ void captureOutputGains() {
 }
 void applyOutputGains() {
     EnableWindow(measuredButton, selectedOutput == 0);
-    auto v = outputGains[std::clamp(selectedOutput.load(), 0, 2)];
+    auto v = outputGains[std::clamp(selectedOutput.load(), 0, 3)];
     SetWindowTextW(independentGainEdit, std::to_wstring(v.fm).c_str());
     SetWindowTextW(pcmGainEdit, std::to_wstring(v.pcm).c_str());
     SetWindowTextW(gainEdit, std::to_wstring(v.master).c_str());
@@ -922,12 +922,13 @@ void applyOutputGains() {
     hardware.setGain(v.master / 100.0, v.fm / 100.0);
 }
 void readSettings() {
+    ndPort=std::clamp(int(setting(L"NdsifCom",0)),0,256);ndDevicePcm=setting(L"NdsifDevicePcm",0)!=0;
     voiceWantedVisible = setting(L"VoiceVisible", 0) != 0;
     voiceShowState = int(setting(L"VoiceShow", SW_SHOWNORMAL));
     splitPermille = std::clamp(int(setting(L"SplitPermille", 620)), 1, 999);
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         auto key = L"Output" + std::to_wstring(i);
-        outputGains[i].fm = std::clamp(int(setting((key + L"FmGain").c_str(), i == 2 ? 100 : 200)), 0, 800);
+        outputGains[i].fm = std::clamp(int(setting((key + L"FmGain").c_str(), i >= 2 ? 100 : 200)), 0, 800);
         outputGains[i].pcm = std::clamp(int(setting((key + L"PcmGain").c_str(), 100)), 0, 400);
         outputGains[i].master = std::clamp(int(setting((key + L"MasterGain").c_str(), 100)), 0, 400);
     }
@@ -1054,7 +1055,7 @@ void saveSettings() {
     }
     number(L"SplitPermille", splitPermille);
     captureOutputGains();
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         auto key = L"Output" + std::to_wstring(i);
         number((key + L"FmGain").c_str(), outputGains[i].fm);
         number((key + L"PcmGain").c_str(), outputGains[i].pcm);
@@ -1072,6 +1073,7 @@ void saveSettings() {
     number(L"KeyMode", DWORD(liveKeyMode->load()));
     text(L"LastPlayedFile", lastPlayedFile.wstring());
     text(L"LastPlayedPdx", lastPlayedBank.wstring());
+    number(L"NdsifCom",ndPort);number(L"NdsifDevicePcm",ndDevicePcm);
     number(L"OutputBackend", SendMessageW(outputBox, CB_GETCURSEL, 0, 0));
     int midiSelection = int(SendMessageW(midiBox, CB_GETCURSEL, 0, 0));
     int midiIndex = midiSelection > 0 ? int(SendMessageW(midiBox, CB_GETITEMDATA, midiSelection, 0)) : -1;

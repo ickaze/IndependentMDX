@@ -1,6 +1,8 @@
-# IndependentMDX 0.33.5
+# IndependentMDX 0.34.0
 
-Adds verified LFO/sequencing corrections, MRL 1.2 titles and PCM8 events with optional embedded PDX, MRZ ZIP output, and low-memory large ZIP/MRL access.
+Adds **NDSIF (NanoDrive 8)** output with hardware FM and selectable PC stereo or device mono PCM. See [connection, settings and verification](docs/NDSIF.md).
+
+Except where otherwise noted, NanoDrive 8 original code is licensed under BSD-3-Clause (Copyright (c) 2024-2026, Fujix). IndependentMDX's NDSIF host implementation (src/ndsif_output.h and src/ndsif_wire.h) was independently written against the public protocol specification and is licensed under 0BSD. No NanoDrive 8 source code or firmware is bundled.
 
 Windows 10/11 x64 MDX/PDX and single-YM2151 VGM/VGZ/MRL/MRZ player with ZIP/LZH/LHA browsing. Audio and per-channel waveforms use the unmodified Independent OPM 0.14 DLL. No OPM implementation source or private monitor core is bundled.
 

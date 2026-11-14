@@ -472,7 +472,7 @@ struct VgmPlayer::Impl {
         o.fadeSeconds < 0 || o.fadeSeconds > 60 ||
         !std::isfinite(o.maxSeconds) || o.maxSeconds < 0)
       throw std::runtime_error("Invalid VGM playback options");
-    if ((o.externalFm || o.fmBackend == 1) && song.clock != 4000000)
+    if (((o.externalFm && !o.variableExternalClock) || o.fmBackend == 1) && song.clock != 4000000)
       throw std::runtime_error("VGM: C86CTL/X68Sound output requires a 4000000 "
                                "Hz YM2151 clock; select Independent OPM DLL");
     if (song.mrl) {

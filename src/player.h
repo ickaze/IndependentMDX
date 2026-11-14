@@ -121,6 +121,7 @@ struct Options {
     int fmDelayMs = 0, pcmDelayMs = 0; // C86CTL only, 0..2000 ms; applied at playback start.
     double gain = 0.40;
     double pcmGain = 1.0; // PCM-only mix trim (0..4).
+    bool variableExternalClock = false;
     int sampleRate = 48000;
 };
 struct Pdx {
